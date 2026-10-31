@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- `Guard.lua`: Develop-module writes are refused (`GUARD_DENIED`) unless the photo is a virtual copy; command wrappers plus a guarded `LrDevelopController` re-check right before each write. Pref `guardEnabled` (default true).
+- Plugin auto-start (`autoStart`): the socket bridge now starts itself after plugin init, with retries; start is idempotent and the menu item reports "already running".
+- `WriteGate.lua`: catalog write handlers return `WRITE_ABORTED` instead of never replying when the write gate is not obtained.
+- `tests/lua`: offline Lua 5.1 tests (optional `lua-tests` extra, needs `lupa`).
+
+### Fixed
+- `Config:get` ignored a stored `false` (so `autoStart = false` could never take effect).
+- `SimpleSocketBridge`: a failed bind no longer wedges later start attempts; starting after Stop clears `shuttingDown`.
+
 ## [1.2.2] - 2026-04-06
 
 ### Fixed

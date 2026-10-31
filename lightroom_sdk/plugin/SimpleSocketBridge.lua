@@ -103,10 +103,21 @@ end
 local function startSocketServer()
     local logger = getLogger()
 
-    -- Guard against multiple concurrent starts
+    -- Guard against multiple concurrent starts. socketServerRunning is only set
+    -- once both sockets are bound (inside the async task below), so a second
+    -- caller (menu item, autostart retry) in that window needs socketStarting.
     if _G.LightroomPythonBridge and _G.LightroomPythonBridge.socketServerRunning then
         logger:info("Socket server already running - skipping start")
         return
+    end
+    if _G.LightroomPythonBridge and _G.LightroomPythonBridge.socketStarting then
+        logger:info("Socket server start already in progress - skipping start")
+        return
+    end
+    if _G.LightroomPythonBridge then
+        _G.LightroomPythonBridge.socketStarting = true
+        -- a previous Stop leaves shuttingDown=true, which would disable restarts
+        _G.LightroomPythonBridge.shuttingDown = false
     end
 
     logger:info("Starting socket server with fixed ports")
@@ -138,8 +149,12 @@ local function startSocketServer()
         logger:error("Phase 3 modules not available")
     end
 
+    local startingBridge = _G.LightroomPythonBridge
     LrTasks.startAsyncTask(function()
-        LrFunctionContext.callWithContext('lightroom_python_bridge', function(context)
+        -- LrTasks.pcall: a failed bind (e.g. port still held by a previous plugin
+        -- instance) must not leave socketStarting stuck, or retries would be
+        -- refused forever.
+        local ctxOk, ctxErr = LrTasks.pcall(LrFunctionContext.callWithContext, 'lightroom_python_bridge', function(context)
             logger:info("Socket context created")
 
             local sender, receiver
@@ -257,6 +272,7 @@ local function startSocketServer()
             logger:info("Both sockets created - entering keep-alive loop")
 
             _G.LightroomPythonBridge.socketServerRunning = true
+            _G.LightroomPythonBridge.socketStarting = false
 
             if commandRouter then
                 commandRouter:startCleanupTask()
@@ -287,6 +303,12 @@ local function startSocketServer()
                 logger:info("Socket server stopped (restart pending)")
             end
         end)
+        if not ctxOk then
+            logger:error("Socket server failed: " .. tostring(ctxErr))
+            if _G.LightroomPythonBridge then _G.LightroomPythonBridge.socketServerRunning = false end
+            -- only on failure: after a normal exit a restart may already have set it again
+            if startingBridge then startingBridge.socketStarting = false end
+        end
     end)
 end
 
@@ -349,6 +371,7 @@ local function stopSocketServer()
     if _G.LightroomPythonBridge then
         _G.LightroomPythonBridge.shuttingDown = true
         _G.LightroomPythonBridge.socketServerRunning = false
+        _G.LightroomPythonBridge.socketStarting = false
     end
 
     -- Best-effort shutdown event (no sleep/wait)
@@ -379,7 +402,11 @@ local function stopSocketServer()
 end
 
 local function isRunning()
-    return _G.LightroomPythonBridge and _G.LightroomPythonBridge.socketServerRunning
+    return _G.LightroomPythonBridge ~= nil and _G.LightroomPythonBridge.socketServerRunning == true
+end
+
+local function isStarting()
+    return _G.LightroomPythonBridge and _G.LightroomPythonBridge.socketStarting == true
 end
 
 local function getCommandRouter()
@@ -398,6 +425,7 @@ return {
     start = startSocketServer,
     stop = stopSocketServer,
     isRunning = isRunning,
+    isStarting = isStarting,
     getRouter = getCommandRouter,
     send = sendMessage
 }

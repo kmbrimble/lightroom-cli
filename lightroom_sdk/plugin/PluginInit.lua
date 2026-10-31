@@ -8,6 +8,16 @@ local LrTasks = import 'LrTasks'
 
 -- Initialize global plugin state in _G
 -- This makes the plugin state accessible from all modules
+-- Plugin reload (File > Plug-in Manager > Reload) re-runs this file. If the
+-- previous instance shares this _G, tell its server loop (polls this flag every
+-- 0.2 s) to close its sockets before the new instance binds the same ports.
+-- A previous instance in a separate Lua environment is signalled by
+-- PluginShutdown.lua instead (LrShutdownPlugin).
+if _G.LightroomPythonBridge then
+    _G.LightroomPythonBridge.socketServerRunning = false
+    _G.LightroomPythonBridge.running = false
+end
+
 _G.LightroomPythonBridge = {
     initialized = false,
     running = false,
@@ -493,8 +503,55 @@ else
 end
 Logger:debug("Configuration loaded: serverHost=" .. config.serverHost .. ", pluginSendPort=" .. config.pluginSendPort .. ", pluginReceivePort=" .. config.pluginReceivePort)
 
--- Auto-start connection if configured
-if config.autoStart then
-    Logger:info("Auto-start enabled - will connect to server when menu action is triggered")
-    -- Note: Actual connection happens in MenuActions.lua to ensure proper context
+-- Auto-start: start the socket bridge ~2 s after init (same entry point as the
+-- "Start CLI Bridge" menu item), retrying if it does not come up. Never raises.
+local AUTOSTART_DELAY = 2
+local AUTOSTART_ATTEMPTS = 5
+
+local function autoStartBridge()
+    LrTasks.startAsyncTask(function()
+        local ok, err = LrTasks.pcall(function()
+            Logger:info("Auto-start: waiting " .. AUTOSTART_DELAY .. "s before starting bridge")
+            LrTasks.sleep(AUTOSTART_DELAY)
+            for attempt = 1, AUTOSTART_ATTEMPTS do
+                local bridge = _G.LightroomPythonBridge
+                if bridge.shuttingDown then
+                    Logger:info("Auto-start: shutting down - abandoning")
+                    return
+                end
+                if SimpleSocketBridge.isRunning() then
+                    Logger:info("Auto-start: bridge already running (attempt " .. attempt .. ")")
+                    return
+                end
+                if SimpleSocketBridge.isStarting() then
+                    Logger:info("Auto-start: start already in progress (attempt " .. attempt .. ")")
+                else
+                    Logger:info("Auto-start: starting bridge (attempt " .. attempt .. "/" .. AUTOSTART_ATTEMPTS .. ")")
+                    local sok, serr = LrTasks.pcall(SimpleSocketBridge.start)
+                    if not sok then
+                        Logger:error("Auto-start: start raised: " .. tostring(serr))
+                    end
+                end
+                LrTasks.sleep(AUTOSTART_DELAY)
+                if SimpleSocketBridge.isRunning() then
+                    Logger:info("Auto-start: bridge is up")
+                    return
+                end
+                Logger:warn("Auto-start: bridge not up after attempt " .. attempt)
+            end
+            Logger:error("Auto-start: gave up after " .. AUTOSTART_ATTEMPTS .. " attempts; use the Start CLI Bridge menu item")
+        end)
+        if not ok then
+            pcall(function() Logger:error("Auto-start task failed: " .. tostring(err)) end)
+        end
+    end)
+end
+
+if config.autoStart and _G.LightroomPythonBridge.phase3Loaded then
+    Logger:info("Auto-start enabled - bridge will start shortly")
+    autoStartBridge()
+elseif config.autoStart then
+    Logger:warn("Auto-start enabled but Phase 3 modules failed to load - not starting")
+else
+    Logger:info("Auto-start disabled - use the Start CLI Bridge menu item")
 end

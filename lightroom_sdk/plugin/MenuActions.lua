@@ -25,7 +25,8 @@ end
 local logger = bridge.logger or myLogger
 
 -- Check if socket server is already running
-if SimpleSocketBridge.isRunning() then
+-- Idempotent: also covers autostart (PluginInit.lua) having a start in flight
+if SimpleSocketBridge.isRunning() or SimpleSocketBridge.isStarting() then
     logger:info("Socket server already running")
     LrDialogs.message("CLI Bridge", "Bridge is already running. Use Stop to disconnect first.", "info")
     return

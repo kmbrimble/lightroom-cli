@@ -42,7 +42,10 @@ function Config:init()
 end
 
 function Config:get(key)
-    return self.prefs[key] or defaults[key]
+    -- nil check, not `or`: a stored false (e.g. autoStart = false) must stay false
+    local v = self.prefs[key]
+    if v == nil then return defaults[key] end
+    return v
 end
 
 function Config:set(key, value)
