@@ -15,7 +15,7 @@ def lua_names():
 
 def test_classes_match_plugin_register_list_exactly():
     names = lua_names()
-    assert len(names) == 130 and len(set(names)) == 130
+    assert len(names) == 132 and len(set(names)) == 132
     assert set(names) == set(CLASSES), (set(names) ^ set(CLASSES))
 
 
@@ -23,7 +23,7 @@ def test_class_counts():
     from collections import Counter
 
     c = Counter(CLASSES.values())
-    assert c == {"R": 23, "RD": 15, "UI": 16, "LM": 20, "LS": 4, "VC": 1, "DW": 49, "RM": 1, "EXT": 1}
+    assert c == {"R": 24, "RD": 15, "UI": 16, "LM": 20, "LS": 5, "VC": 1, "DW": 49, "RM": 1, "EXT": 1}
 
 
 def test_deny_regex_hits_no_known_command():

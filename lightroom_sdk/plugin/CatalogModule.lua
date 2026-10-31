@@ -1462,22 +1462,40 @@ end
 
 function CatalogModule.createVirtualCopy(params, callback)
     ensureLrModules()
+    params = params or {}
     local catalog = LrApplication.activeCatalog()
-    local photo = catalog:getTargetPhoto()
-    if not photo then
+    -- LrCatalog:createVirtualCopies acts on the *selected* photos, so select the requested one first.
+    if params.photoId then
+        local target = catalog:getPhotoByLocalId(tonumber(params.photoId))
+        if not target then
+            callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "Photo not found: " .. tostring(params.photoId)))
+            return
+        end
+        catalog:setSelectedPhotos(target, { target })
+    elseif not catalog:getTargetPhoto() then
         callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "No photo selected"))
         return
     end
-    local success, err = ErrorUtils.safeCall(function()
-        WriteGate.run(catalog, "Create Virtual Copy", function()
-            photo:createVirtualCopy()
-        end, { timeout = 10 })
-    end)
-    if success then
-        callback(ErrorUtils.createSuccess({ message = "Virtual copy created" }))
-    else
-        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
+    local copyName = params.copyName
+    local copies
+    -- The SDK does not document whether a write gate is required; try bare first, then gated.
+    local ok, err = pcall(function() copies = catalog:createVirtualCopies(copyName) end)
+    if not ok or copies == nil then
+        local success, gerr = ErrorUtils.safeCall(function()
+            WriteGate.run(catalog, "Create Virtual Copy", function()
+                copies = catalog:createVirtualCopies(copyName)
+            end, { timeout = 10 })
+        end)
+        if not success then
+            callback(ErrorUtils.createError(WriteGate.codeFor(gerr, "OPERATION_FAILED"), tostring(gerr) .. " (bare attempt: " .. tostring(err) .. ")"))
+            return
+        end
     end
+    local ids = {}
+    for _, c in ipairs(copies or {}) do
+        ids[#ids + 1] = c.localIdentifier
+    end
+    callback(ErrorUtils.createSuccess({ message = "Virtual copy created", virtualCopyIds = ids, count = #ids }))
 end
 
 function CatalogModule.setMetadata(params, callback)
@@ -1670,31 +1688,87 @@ function CatalogModule.getCurrentViewFilter(params, callback)
     end
 end
 
+-- The Lightroom SDK has NO API to remove photos from a catalog (LrCatalog has no removePhoto).
+-- This command therefore only STAGES a removal: it puts the photos in a collection, makes that
+-- collection the active source and selects them all. The removal itself is Lightroom's own
+-- Photo > Remove Photos from Catalog (Alt+Backspace), driven from outside. A collection is used
+-- because stacks are not shown there, so a collapsed stack can never drag extra photos in.
+-- Remove-from-catalog never touches files on disk.
 function CatalogModule.removeFromCatalog(params, callback)
     ensureLrModules()
-    local photoId = params.photoId
-    if not photoId then
-        callback(ErrorUtils.createError("MISSING_PARAM", "Photo ID is required"))
+    params = params or {}
+    local ids = params.photoIds
+    if (not ids or #ids == 0) and params.photoId then ids = { params.photoId } end
+    if not ids or #ids == 0 then
+        callback(ErrorUtils.createError("MISSING_PARAM", "photoId or photoIds is required"))
         return
     end
     local catalog = LrApplication.activeCatalog()
-    local gateStatus = catalog:withWriteAccessDo("Remove From Catalog", function()
-        local photo = catalog:getPhotoByLocalId(tonumber(photoId))
-        if not photo then
-            callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "Photo not found"))
-            return
-        end
-        local success, err = ErrorUtils.safeCall(function()
-            catalog:removePhoto(photo)
-        end)
-        if success then
-            callback(ErrorUtils.createSuccess({ photoId = photoId, message = "Photo removed from catalog" }))
-        else
-            callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
-        end
+    local name = params.collectionName or "_LRCLI_TO_REMOVE"
+    local photos, missing = {}, 0
+    for _, id in ipairs(ids) do
+        local p = catalog:getPhotoByLocalId(tonumber(id))
+        if p then photos[#photos + 1] = p else missing = missing + 1 end
+    end
+    if #photos == 0 then
+        callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "None of the photos exist"))
+        return
+    end
+    local collection
+    local gateStatus = catalog:withWriteAccessDo("Stage Removal", function()
+        collection = catalog:createCollection(name, nil, true)
+        collection:addPhotos(photos)
+    end, { timeout = 30 })
+    local aborted = WriteGate.abortResponse(gateStatus, "Stage Removal")
+    if aborted then callback(aborted) return end
+    if not collection then
+        callback(ErrorUtils.createError("OPERATION_FAILED", "Could not create collection " .. name))
+        return
+    end
+    local inCollection = #collection:getPhotos()
+    local sok, serr = pcall(function()
+        catalog:setActiveSources({ collection })
+        catalog:setSelectedPhotos(photos[1], photos)
+    end)
+    if not sok then
+        callback(ErrorUtils.createError("OPERATION_FAILED", "Staged but could not show collection: " .. tostring(serr)))
+        return
+    end
+    callback(ErrorUtils.createSuccess({
+        staged = #photos,
+        missing = missing,
+        collectionId = collection.localIdentifier,
+        collectionName = name,
+        photosInCollection = inCollection,
+        selected = #catalog:getTargetPhotos(),
+        message = "Staged. Library must now run Photo > Remove Photos from Catalog (Alt+Backspace) on the selection.",
+    }))
+end
+
+-- Delete a staging collection (the photos themselves are untouched).
+function CatalogModule.deleteCollection(params, callback)
+    ensureLrModules()
+    local catalog = LrApplication.activeCatalog()
+    local id = tonumber(params and params.collectionId)
+    if not id then
+        callback(ErrorUtils.createError("MISSING_PARAM", "collectionId is required"))
+        return
+    end
+    local deleted = false
+    local gateStatus = catalog:withWriteAccessDo("Delete Staging Collection", function()
+        local c = catalog:getCollectionByLocalIdentifier(id)
+        if c and c:getName() == "_LRCLI_TO_REMOVE" then c:delete() deleted = true end
     end, { timeout = 10 })
-    local aborted = WriteGate.abortResponse(gateStatus, "Remove From Catalog")
-    if aborted then callback(aborted) end
+    local aborted = WriteGate.abortResponse(gateStatus, "Delete Staging Collection")
+    if aborted then callback(aborted) return end
+    callback(ErrorUtils.createSuccess({ deleted = deleted }))
+end
+
+-- Total photos in the catalog (cheap sanity check for removals).
+function CatalogModule.countPhotos(params, callback)
+    ensureLrModules()
+    local catalog = LrApplication.activeCatalog()
+    callback(ErrorUtils.createSuccess({ count = #catalog:getAllPhotos() }))
 end
 
 -- Get photos from a specific collection by ID

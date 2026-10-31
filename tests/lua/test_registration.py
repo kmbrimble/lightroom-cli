@@ -45,7 +45,7 @@ NON_DW = {
     "catalog.createVirtualCopy", "catalog.setMetadata", "catalog.createCollection",
     "catalog.createSmartCollection", "catalog.createCollectionSet", "catalog.createKeyword",
     "catalog.removeKeyword", "catalog.setViewFilter", "catalog.getCurrentViewFilter",
-    "catalog.removeFromCatalog", "catalog.getCollectionPhotos", "catalog.getDevelopPresets",
+    "catalog.removeFromCatalog", "catalog.deleteCollection", "catalog.countPhotos", "catalog.getCollectionPhotos", "catalog.getDevelopPresets",
     "preview.generatePreview", "preview.generateBatchPreviews", "preview.getPreviewInfo",
     "preview.getPreviewChunk", "selection.flagAsPick", "selection.flagAsReject",
     "selection.removeFlag", "selection.getFlag", "selection.setRating", "selection.getRating",

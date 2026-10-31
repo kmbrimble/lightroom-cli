@@ -22,7 +22,7 @@ function T.addPhoto(id, isVC)
     return nil
   end
   function p:getFormattedMetadata(k) return tostring(id) end
-  for _, m in ipairs({'rotateLeft','rotateRight','pasteSettings','createDevelopSnapshot','applyDevelopPreset','setRawMetadata','createVirtualCopy'}) do
+  for _, m in ipairs({'rotateLeft','rotateRight','pasteSettings','createDevelopSnapshot','applyDevelopPreset','setRawMetadata'}) do
     p[m] = function(self, ...) table.insert(T.writes, { op = m, photo = id }) end
   end
   T.photos[id] = p
@@ -38,12 +38,41 @@ function catalog:getTargetPhotos() return T.selection end
 function catalog:setSelectedPhotos(p, list) T.target = p; T.selection = list or { p } end
 function catalog:withWriteAccessDo(name, fn, opts)
   T.lastGate = name
-  if T.gate == "executed" then fn() end
+  if T.gate == "executed" then T.inGate = true; local ok, e = pcall(fn); T.inGate = false; if not ok then error(e, 0) end end
   return T.gate
 end
-function catalog:createCollection() end
+-- Real SDK: LrCatalog:createVirtualCopies(copyName) acts on the SELECTED photos, returns the new photos.
+-- It is modelled as needing write access, the conservative reading of the undocumented requirement.
+function catalog:createVirtualCopies(copyName)
+  if not T.inGate then error("createVirtualCopies needs write access", 0) end
+  local out = {}
+  for _, src in ipairs(T.selection) do
+    local id = 1000 + #T.writes + 1
+    local vc = T.addPhoto(id, true)
+    table.insert(T.writes, { op = 'createVirtualCopies', photo = src.localIdentifier })
+    out[#out + 1] = vc
+  end
+  return out
+end
+function catalog:createCollection(name, parent, returnExisting)
+  T.collections = T.collections or {}
+  local c = T.collections[name]
+  if not c then
+    c = { localIdentifier = 500 + #T.writes, name = name, photos = {} }
+    function c:addPhotos(list) for _, p in ipairs(list) do table.insert(self.photos, p) end end
+    function c:getPhotos() return self.photos end
+    function c:getName() return self.name end
+    function c:delete() T.collections[self.name] = nil end
+    T.collections[name] = c
+  end
+  return c
+end
+function catalog:getCollectionByLocalIdentifier(id)
+  for _, c in pairs(T.collections or {}) do if c.localIdentifier == id then return c end end
+end
+function catalog:setActiveSources(list) T.activeSources = list end
+function catalog:getAllPhotos() local o = {}; for _, p in pairs(T.photos) do o[#o + 1] = p end; return o end
 function catalog:createKeyword() end
-function catalog:removePhoto() end
 T.catalog = catalog
 
 local function noop() end

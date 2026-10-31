@@ -244,3 +244,26 @@ def test_controller_proxy_works_when_namespace_not_enumerable(env):
         return v, ok, ok2, #T.writes
     """)
     assert tuple(r) == (0, False, True, 1)
+
+
+def test_create_virtual_copy_uses_catalog_createVirtualCopies_and_returns_ids(env):
+    r = env.run(SETUP + """
+        local CM = require 'CatalogModule'
+        T.gate = 'executed'
+        T.select(T.photos[1])
+        local resp; CM.createVirtualCopy({}, function(x) resp = x end)
+        return resp.error == nil, resp.result.count, T.writes[#T.writes].op
+    """)
+    assert tuple(r)[0] is True and tuple(r)[2] == "createVirtualCopies"
+
+
+def test_remove_from_catalog_only_stages_in_collection_never_removes(env):
+    r = env.run(SETUP + """
+        local CM = require 'CatalogModule'
+        T.gate = 'executed'
+        T.addPhoto(2, false)
+        local resp; CM.removeFromCatalog({ photoIds = { 1, 2, 999 } }, function(x) resp = x end)
+        local d = resp.result
+        return d.staged, d.missing, d.photosInCollection, d.selected, #T.activeSources, T.photos[1] ~= nil and T.photos[2] ~= nil
+    """)
+    assert tuple(r) == (2, 1, 2, 2, 1, True)

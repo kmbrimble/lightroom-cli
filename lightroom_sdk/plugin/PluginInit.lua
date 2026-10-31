@@ -391,6 +391,8 @@ local function registerApiCommands()
     router:register("catalog.setViewFilter", CatalogModule.setViewFilter, "sync")
     router:register("catalog.getCurrentViewFilter", CatalogModule.getCurrentViewFilter, "sync")
     router:register("catalog.removeFromCatalog", CatalogModule.removeFromCatalog, "sync")
+    router:register("catalog.deleteCollection", CatalogModule.deleteCollection, "sync")
+    router:register("catalog.countPhotos", CatalogModule.countPhotos, "sync")
     router:register("catalog.getCollectionPhotos", CatalogModule.getCollectionPhotos, "sync")
     router:register("catalog.getDevelopPresets", CatalogModule.getDevelopPresets, "sync")
 

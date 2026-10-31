@@ -111,7 +111,9 @@ CLASSES = {
     "catalog.removeKeyword": "LM",
     "catalog.setViewFilter": "UI",
     "catalog.getCurrentViewFilter": "R",
-    "catalog.removeFromCatalog": "RM",
+    "catalog.removeFromCatalog": "RM",   # stages only: SDK cannot remove; removal is a UI step
+    "catalog.deleteCollection": "LS",
+    "catalog.countPhotos": "R",
     "catalog.getCollectionPhotos": "R",
     "catalog.getDevelopPresets": "R",
     "preview.generatePreview": "R",
