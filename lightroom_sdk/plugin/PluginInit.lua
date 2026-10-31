@@ -21,6 +21,7 @@ _G.LightroomPythonBridge = {
 local Logger = require 'Logger'
 local Config = require 'Config'
 local SimpleSocketBridge = require 'SimpleSocketBridge'
+local Guard = require 'Guard'
 
 -- Initialize configuration system
 Config:init()
@@ -226,6 +227,9 @@ end
 -- Phase 4: Register API wrapper commands
 local function registerApiCommands()
     local router = _G.LightroomPythonBridge.commandRouter
+    -- Develop-write (DW) commands are wrapped by Guard (virtual copies only);
+    -- every other command registers unchanged.
+    if router then router = Guard.routerProxy(router) end
     Logger:info("registerApiCommands called - router available: " .. tostring(router ~= nil))
     if not router then
         Logger:warn("Command router not available yet")
