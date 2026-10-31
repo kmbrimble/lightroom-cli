@@ -55,7 +55,7 @@ lr-mcp-proxy = "lightroom_sdk.mcp_proxy:main"
 lr-quality = "lr_quality.cli:main"
 
 [tool.setuptools]
-packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server", "lr_quality"]
+packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server", "lr_quality", "lr_triage"]
 
 [tool.setuptools.package-data]
 lightroom_sdk = ["plugin/*.lua"]
