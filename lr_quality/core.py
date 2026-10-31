@@ -8,6 +8,8 @@ import os
 from pathlib import Path
 
 import numpy as np
+from . import assess, features
+from . import model as _model
 from PIL import Image, ImageOps
 
 try:  # optional accelerator; results match the numpy path to float tolerance
@@ -15,7 +17,7 @@ try:  # optional accelerator; results match the numpy path to float tolerance
 except Exception:  # pragma: no cover
     cv2 = None
 
-SCHEMA = "lr_quality/1"
+SCHEMA = "lr_quality/2"
 SCENES = ("landscape", "city", "people", "sunset", "snow", "interior", "night")
 _PCTS = (1, 5, 25, 50, 75, 95, 99)
 
@@ -122,7 +124,7 @@ def _focus_noise(g, th, use_cv2):
         take = ok[np.argsort(tv[ok], kind="stable")[: max(1, ok.size // 4)]]
         ia = _tiles(np.abs(imm), ty, tx).mean((1, 3)).ravel()
         sigma = float(np.sqrt(np.pi / 2) / 6.0 * ia[take].mean())
-    return focus, {"sigma_estimate": sigma}
+    return focus, {"sigma_estimate": sigma}, lap, imm
 
 
 def _tilt(img, th):
@@ -269,13 +271,13 @@ def _round(o):
     return o
 
 
-def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto") -> dict:
+def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default", tilt_flag=False) -> dict:
     """Analyse one image (bytes | path | PIL image). accel: 'auto' (cv2 if installed) or 'numpy'."""
     return finalize(analyze_raw(image, scene_hint=scene_hint, thresholds=thresholds, targets=targets,
-                                long_edge=long_edge, accel=accel))
+                                long_edge=long_edge, accel=accel, model=model, tilt_flag=tilt_flag))
 
 
-def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto") -> dict:
+def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default", tilt_flag=False) -> dict:
     """Like analyze() but keeps the private `_th` key so batch_pass can re-evaluate flags."""
     if scene_hint is not None and scene_hint not in SCENES:
         raise ValueError(f"scene_hint must be one of {SCENES}")
@@ -293,7 +295,8 @@ def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_e
     use_cv2 = cv2 is not None and accel == "auto"
     exp = _exposure(rgb, q, th)
     exp["vs_targets"] = _vs_targets(exp, targets, scene_hint)
-    focus, noise = _focus_noise(g, th, use_cv2)
+    focus, noise, lap, imm = _focus_noise(g, th, use_cv2)
+    hough = _tilt(img, th)
     res = {
         "schema": SCHEMA,
         "source": None,
@@ -301,12 +304,30 @@ def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_e
         "image": {"width": w0, "height": h0, "analysed_long_edge": max(img.size), "format": fmt},
         "exposure": exp,
         "focus": focus,
-        "tilt": _tilt(img, th),
+        "tilt": hough,
         "noise": noise,
+        "features": features.extract(rgb, q, g, lap, imm, hough, th),
     }
     res["flags"], res["needs_second_opinion"] = _flags(res, th, scene_hint)
+    mdl = _resolve_model(model)
+    if mdl:  # learned assessment replaces the v1 rule flags; the rules stay available as flags_v1
+        res["flags_v1"], res["needs_second_opinion_v1"] = res["flags"], res["needs_second_opinion"]
+        res["assessment"], res["flags"], res["needs_second_opinion"] = assess.run(mdl, res["features"], res["image"], tilt_flag=tilt_flag)
     res["_th"] = th  # stripped by finalize(); kept so the batch pass can re-evaluate
     return res
+
+
+_CACHE = {}
+
+
+def _resolve_model(model):
+    """'default' -> shipped model.json (or None if absent); None -> v1 rules only; str/Path -> file; dict -> as is."""
+    if model is None or isinstance(model, dict):
+        return model
+    key = str(_model.DEFAULT_MODEL if model == "default" else model)
+    if key not in _CACHE:
+        _CACHE[key] = _model.load(None if model == "default" else model)
+    return _CACHE[key]
 
 
 def finalize(res: dict) -> dict:
@@ -328,4 +349,5 @@ def batch_pass(results: list) -> None:
             r["focus"]["relative_to_batch"] = r["focus"]["score_tile_p90"] / med
         m = r["exposure"]["mean_luma"]
         r["exposure"]["batch_percentile"] = float(100.0 * ((means < m).sum() + 0.5 * (means == m).sum()) / len(ok))
-        r["flags"], r["needs_second_opinion"] = _flags(r, r["_th"], r["scene_hint"])
+        if "assessment" not in r:
+            r["flags"], r["needs_second_opinion"] = _flags(r, r["_th"], r["scene_hint"])
