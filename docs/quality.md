@@ -46,11 +46,11 @@ Analysis runs on a copy resized (downscale only, Lanczos) to a long edge of 1600
 comparable across inputs. Smaller images are not upscaled (`analysed_long_edge` reports the real value). EXIF orientation is applied.
 Luma is Pillow's integer Rec.601 conversion (0-255). Output floats are rounded to 4 dp; the output is deterministic.
 
-## Output schema `lr_quality/1`
+## Output schema `lr_quality/1` (v1 fields; `lr_quality/2` only adds keys, see quality-v2.md)
 
 | Field | Meaning |
 |---|---|
-| `schema` | `"lr_quality/1"` |
+| `schema` | `"lr_quality/2"` (v1: `"lr_quality/1"`) |
 | `source` | path as given (null for stdin/bytes/PIL) |
 | `scene_hint` | echo of the hint, or null |
 | `image.width`, `image.height` | original size (after EXIF rotation) |

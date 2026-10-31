@@ -40,7 +40,7 @@ python scripts/score_previews.py [--previews DIR] [--out FILE] [--workers 8] [--
 - Scene hint is `landscape` unless the original filename (from `photos.json`) contains another scene word (`city, people, sunset, snow, interior, night`).
 - Resumable: per-image raw results are cached in `<out>.raw` (includes errors); only images without a cached success are analysed.
   Batch-relative fields and flags are always recomputed over the whole set and `<out>` is replaced atomically.
-- Output: one line per scored image, `{"id": "<id>", ...}` followed by the full `lr_quality/1` object (see `docs/quality.md`),
+- Output: one line per scored image, `{"id": "<id>", ...}` followed by the full `lr_quality/2` object (see `docs/quality.md`),
   with `exposure.batch_percentile` and `focus.relative_to_batch` relative to the whole folder. Images that fail to decode appear only in `.raw`.
 - Exit code 1 if any image failed.
 
