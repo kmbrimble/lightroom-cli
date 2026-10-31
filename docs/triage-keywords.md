@@ -57,6 +57,25 @@ Removes exactly each photo's logged `to_add` through `catalog.removeKeyword` (pr
 KEYWORD_NOT_FOUND counts as done; resumable via `undo_ai_keywords_log.ndjson`). The emptied keyword objects and the `AI - *`
 smart collections stay and are deleted by hand.
 
+## Round 2: review and fix keywords (from quality-labels/labels.ndjson)
+
+`python scripts/triage_review_plan.py` -> `review_plan.ndjson` (485 photos get at least one keyword; the other 1,038 get none, no marker).
+Rules in `lr_triage/review_keywords.py`, applied exactly as specified: Blown highlights (highlights>=2), Crushed shadows (shadows>=2),
+Too dark (exposure<=-1 and fixes has raise_exposure/lift_shadows, or exposure<=-2), Too bright (exposure>=2 or lower_exposure),
+Soft focus (focus>=2), Motion blur (>=2), Needs straightening (|tilt|>=1 deg and confidence>=0.6), Reject candidate (keeper<=2),
+Top pick (==5), Uncertain, Possibly intentional (carries `canyon`/`slot canyon` from round 1 and Motion blur or Blown highlights).
+Fix hints come from `fixes` only when the matching severity is >=2 (exposure: <=-1 / >=1; crop: no metric) or keeper_score<=3.
+Same tooling, separate log (`run_review.ndjson`, own baseline). The writer ran as ONE detached Scheduled Task
+(`LrReviewKeywordsOnce`, a .cmd wrapper redirecting to `run_review.out`, deleted afterwards); the script also refuses to start when
+`<log>.lock` exists, so two writers on one log are impossible. `--only` takes a keyword with `_` for spaces (ssh quoting).
+
+**Smart collection gotcha:** Lightroom's `any` operator splits the value into words and matches ANY of them. `Review - Top pick`
+as the value matched all 485 Review-tagged photos. Review collections therefore use one word that occurs in no other keyword
+(`Blown`, `Crushed`, `dark`, `bright`, `Soft`, `blur`, `straightening`, `Reject`, `pick`, `Uncertain`, `Possibly`; a test checks
+uniqueness). `Fix - *` hints get no collection because their words are shared with Review keywords.
+
+Undo for both runs: `undo_ai_keywords.py --log run.ndjson run_review.ndjson` (one process, one undo log).
+
 ## Tests
 
 `python -m pytest tests/triage_apply` (real daemon + stateful mock plugin: canary, resume, collections, verify, undo, abort).

@@ -116,3 +116,67 @@ def test_plan_rules():
     assert "bear" not in p["10"] and "wildlife" in p["10"] and "grass" in p["10"]  # unconfirmed species dropped
     assert "landscape" not in p["20"] and "tilted_horizon" not in p["20"]
     assert {"people", "group", "lake"} <= set(p["20"])
+
+
+def _lab(**kw):
+    r = {"id": "1", "highlights": 0, "shadows": 0, "exposure": 0, "focus": 0, "motion_blur": 0, "noise": 0, "horizon_tilt_deg": None,
+         "tilt_confidence": 0, "keeper_score": 4, "fixes": ["none"], "uncertain": False}
+    r.update(kw)
+    return r
+
+
+def test_review_rules():
+    from lr_triage.review_keywords import review_keywords as rk
+    assert rk(_lab()) == []
+    assert rk(_lab(highlights=2, fixes=["lower_highlights"])) == ["Review - Blown highlights", "Fix - Lower highlights"]
+    assert "Review - Too dark" in rk(_lab(exposure=-1, fixes=["lift_shadows"]))
+    assert "Review - Too dark" not in rk(_lab(exposure=-1))
+    assert "Review - Too dark" in rk(_lab(exposure=-2))
+    assert "Review - Too bright" in rk(_lab(fixes=["lower_exposure"]))
+    assert "Fix - Lift shadows" not in rk(_lab(shadows=1, fixes=["lift_shadows"]))  # mild + keeper 4: no hint
+    assert "Fix - Lift shadows" in rk(_lab(shadows=1, keeper_score=3, fixes=["lift_shadows"]))
+    assert "Review - Needs straightening" in rk(_lab(horizon_tilt_deg=-1.5, tilt_confidence=0.6))
+    assert "Review - Needs straightening" not in rk(_lab(horizon_tilt_deg=-1.5, tilt_confidence=0.5))
+    k = rk(_lab(keeper_score=2, uncertain=True, motion_blur=2), canyon=True)
+    assert {"Review - Reject candidate", "Review - Uncertain", "Review - Motion blur", "Review - Possibly intentional"} <= set(k)
+    assert "Review - Possibly intentional" not in rk(_lab(motion_blur=2), canyon=False)
+    assert "Review - Top pick" in rk(_lab(keeper_score=5))
+
+
+async def test_second_writer_refused_and_custom_collections(env):
+    m, d, tp, pf = env
+    log = str(tp / "run.ndjson")
+    (tp / "run.ndjson.lock").write_text("")
+    assert await sync(T.main, ["run", "--plan", str(pf), "--log", log]) == 3
+    assert not m.writes
+    (tp / "run.ndjson.lock").unlink()
+    assert await sync(T.main, ["run", "--plan", str(pf), "--log", log]) == 0
+    assert not (tp / "run.ndjson.lock").exists()
+    cj = tp / "c.json"
+    cj.write_text(json.dumps([["AI Review - Top picks", "Review - Top pick"]]))
+    saved = list(T.COLLECTIONS)
+    try:
+        assert await sync(T.main, ["collections", "--plan", str(pf), "--collections-json", str(cj)]) == 0
+    finally:
+        T.COLLECTIONS[:] = saved
+    assert m.colls == {"AI Review - Top picks": "Review - Top pick"}
+
+
+def test_review_collection_tokens_unique():
+    """'any' matches any word of the value: each token must occur in exactly one keyword the plans can write."""
+    from lr_triage.review_keywords import NAMES, TOKENS
+    assert set(TOKENS) <= set(NAMES)
+    for k, t in TOKENS.items():
+        assert [x for x in NAMES if t.lower() in x.lower()] == [k], (k, t)
+
+
+async def test_undo_covers_both_logs(env):
+    m, d, tp, pf = env
+    pf2 = tp / "plan2.ndjson"
+    pf2.write_text("".join(json.dumps({"photo_id": str(i), "keywords": ["Review - Top pick"]}) + "\n" for i in range(1, 4)))
+    l1, l2 = str(tp / "a.ndjson"), str(tp / "b.ndjson")
+    assert await sync(T.main, ["run", "--plan", str(pf), "--log", l1]) == 0
+    assert await sync(T.main, ["run", "--plan", str(pf2), "--log", l2]) == 0
+    assert "Review - Top pick" in m.kw[1]
+    assert await sync(U.main, ["--log", l1, l2, "--undo-log", str(tp / "u.ndjson")]) == 0
+    assert all(m.kw[i] == ["mine"] for i in range(1, 9)), m.kw

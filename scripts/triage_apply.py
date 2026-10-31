@@ -257,13 +257,17 @@ def main(argv=None):
     a.add_argument("--log", default="triage_apply_log.ndjson")
     a.add_argument("--ids")
     a.add_argument("--live", action="store_true")
-    a.add_argument("--only")
+    a.add_argument("--only", help="keyword of one collection; '_' stands for a space (spaces break ssh quoting)")
     a.add_argument("--sample", type=int, default=200)
     a.add_argument("--lrc")
     a.add_argument("--limit", type=int)
+    a.add_argument("--collections-json", help='JSON [["collection name","keyword"],...] replacing the built-in triage set')
     a.add_argument("--sleep", type=float, default=0.0)
     o = a.parse_args(argv)
+    o.only = o.only.replace("_", " ") if o.only else None
     plan = read_ndjson(o.plan)
+    if o.collections_json:
+        COLLECTIONS[:] = [tuple(x) for x in json.load(open(o.collections_json, encoding="utf-8"))]
     if o.mode == "dry" and not o.live:
         return dry(plan)
     d = Daemon(load_lrc(o.lrc))
@@ -271,10 +275,18 @@ def main(argv=None):
         print("daemon not healthy / bridge not connected"); return 3
     if o.mode == "dry":
         return dry(plan, d)
-    if o.mode == "canary":
-        return run(d, plan, o.log, set(o.ids.split(",")), check=True)
-    if o.mode == "run":
-        return run(d, plan, o.log, sleep=o.sleep, limit=o.limit)
+    if o.mode in ("run", "canary"):
+        lock = o.log + ".lock"  # exactly one writer per log; a stale lock after a crash must be removed by hand
+        try:
+            os.close(os.open(lock, os.O_CREAT | os.O_EXCL | os.O_WRONLY))
+        except FileExistsError:
+            print(f"ABORT: {lock} exists (another writer running, or remove it if a crash left it)"); return 3
+        try:
+            if o.mode == "canary":
+                return run(d, plan, o.log, set(o.ids.split(",")), check=True)
+            return run(d, plan, o.log, sleep=o.sleep, limit=o.limit)
+        finally:
+            os.remove(lock)
     if o.mode == "collections":
         return make_collections(d, plan, o.only)
     if o.mode == "report":
