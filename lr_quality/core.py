@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 
 import numpy as np
+from . import features
 from PIL import Image, ImageOps
 
 try:  # optional accelerator; results match the numpy path to float tolerance
@@ -122,7 +123,7 @@ def _focus_noise(g, th, use_cv2):
         take = ok[np.argsort(tv[ok], kind="stable")[: max(1, ok.size // 4)]]
         ia = _tiles(np.abs(imm), ty, tx).mean((1, 3)).ravel()
         sigma = float(np.sqrt(np.pi / 2) / 6.0 * ia[take].mean())
-    return focus, {"sigma_estimate": sigma}
+    return focus, {"sigma_estimate": sigma}, lap, imm
 
 
 def _tilt(img, th):
@@ -269,13 +270,13 @@ def _round(o):
     return o
 
 
-def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto") -> dict:
+def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default") -> dict:
     """Analyse one image (bytes | path | PIL image). accel: 'auto' (cv2 if installed) or 'numpy'."""
     return finalize(analyze_raw(image, scene_hint=scene_hint, thresholds=thresholds, targets=targets,
                                 long_edge=long_edge, accel=accel))
 
 
-def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto") -> dict:
+def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default") -> dict:
     """Like analyze() but keeps the private `_th` key so batch_pass can re-evaluate flags."""
     if scene_hint is not None and scene_hint not in SCENES:
         raise ValueError(f"scene_hint must be one of {SCENES}")
@@ -293,7 +294,8 @@ def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_e
     use_cv2 = cv2 is not None and accel == "auto"
     exp = _exposure(rgb, q, th)
     exp["vs_targets"] = _vs_targets(exp, targets, scene_hint)
-    focus, noise = _focus_noise(g, th, use_cv2)
+    focus, noise, lap, imm = _focus_noise(g, th, use_cv2)
+    hough = _tilt(img, th)
     res = {
         "schema": SCHEMA,
         "source": None,
@@ -301,8 +303,9 @@ def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_e
         "image": {"width": w0, "height": h0, "analysed_long_edge": max(img.size), "format": fmt},
         "exposure": exp,
         "focus": focus,
-        "tilt": _tilt(img, th),
+        "tilt": hough,
         "noise": noise,
+        "features": features.extract(rgb, q, g, lap, imm, hough, th),
     }
     res["flags"], res["needs_second_opinion"] = _flags(res, th, scene_hint)
     res["_th"] = th  # stripped by finalize(); kept so the batch pass can re-evaluate

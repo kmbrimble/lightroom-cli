@@ -82,7 +82,7 @@ def cmd_batch(a):
     return 1 if any("error" in r for r in results) else 0
 
 
-def cmd_learn(a):
+def cmd_learn_targets(a):
     root = Path(a.folder)
     if not root.is_dir():
         print(f"lr-quality learn-targets: not a folder: {a.folder}", file=sys.stderr)
@@ -108,6 +108,94 @@ def cmd_learn(a):
     Path(a.out).write_text(json.dumps(doc, indent=2) + "\n", "utf-8")
     _out({"written": a.out, "scenes": {c: s["n"] for c, s in scenes.items()}, "failed": failed})
     return 1 if failed else 0
+
+
+def _one(args):
+    p, kw = args
+    try:
+        r = core.analyze(p, **kw)
+        r["source"] = None
+        return {"id": Path(p).stem, "result": r}
+    except Exception as e:
+        return {"id": Path(p).stem, "error": f"{type(e).__name__}: {e}"}
+
+
+def cmd_features(a):
+    """Analyse a folder of <id>.jpg previews in parallel -> NDJSON {id, result} (a cache for eval/learn)."""
+    import multiprocessing as mp
+    paths = list(_expand(a.paths))
+    kw = dict(model=None, accel="auto")
+    with mp.Pool(a.jobs) as pool, open(a.out, "w", encoding="utf-8") as fh:
+        for rec in pool.imap(_one, [(p, kw) for p in paths], chunksize=8):
+            fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+    _out({"written": a.out, "n": len(paths)})
+    return 0
+
+
+def _dataset(a):
+    from . import labels as L, learn as Ln
+    revs = list(a.reviews)
+    if getattr(a, "add_review", None):  # append new reviews to the first reviews file, then use it
+        with open(revs[0], "a", encoding="utf-8") as fh:
+            for add in a.add_review:
+                txt = Path(add).read_text("utf-8")
+                fh.write(txt if txt.endswith("\n") else txt + "\n")
+    recs = L.load(revs, weak=a.weak or ())
+    Ln.apply_meta(recs, a.meta)
+    cache = Ln.load_cache(a.features)
+    kept, F, res = Ln.join(recs, cache)
+    print(f"reviews {len(recs)} ({sum(r['source'] == 'weak' for r in recs)} weak); with features {len(kept)}", file=sys.stderr)
+    return kept, F, res
+
+
+def cmd_eval(a):
+    from . import learn as Ln, model as M
+    recs, F, res = _dataset(a)
+    dev, ho = Ln.split(recs)
+    sel = lambda m, xs: [x for x, k in zip(xs, m) if k]  # noqa: E731
+    if a.model:
+        model = M.load(a.model)
+    else:
+        model, oof, used = Ln.fit_all(sel(dev, F), sel(dev, recs), seed=a.seed)
+        cv = Ln.cv_report(model, oof, sel(dev, recs))
+        print("== stratified 5-fold CV on dev (75%) ==\nissue                thr   n+   AUC     P     R    F1\n" + Ln.fmt_cv(cv))
+    out = {}
+    for name, m in (("held-out (25%)", ho), ("dev (75%)", dev)):
+        ev = Ln.evaluate(model, sel(m, F), sel(m, recs), sel(m, res))
+        print("\n" + Ln.fmt_table(ev, f"== {name}, n={ev['n']} =="))
+        out[name] = ev
+    if a.json:
+        Path(a.json).write_text(json.dumps(out, indent=1, default=float) + "\n", "utf-8")
+    return 0
+
+
+def cmd_learn(a):
+    from . import learn as Ln, model as M
+    recs, F, res = _dataset(a)
+    dev, ho = Ln.split(recs)
+    sel = lambda m, xs: [x for x, k in zip(xs, m) if k]  # noqa: E731
+    dm, oof, _ = Ln.fit_all(sel(dev, F), sel(dev, recs), seed=a.seed)
+    new = Ln.evaluate(dm, sel(ho, F), sel(ho, recs), sel(ho, res))
+    sm = Ln.metric_summary(new)
+    print(Ln.fmt_table(new, f"candidate (fit on dev) on held-out n={new['n']}"), file=sys.stderr)
+    prev = M.load(a.out) if Path(a.out).exists() else None
+    report = {"candidate_heldout": sm, "n_reviews": len(recs)}
+    if prev and prev.get("dev_model"):
+        old = Ln.metric_summary(Ln.evaluate(prev["dev_model"], sel(ho, F), sel(ho, recs), sel(ho, res)))
+        report["previous_heldout"] = old
+        if sm["mean_auc"] < old["mean_auc"] - 0.01 or sm["mean_f1"] < old["mean_f1"] - 0.02:
+            report["refused"] = "worse than the previous model on the held-out split"
+            if not a.force:
+                _out(report)
+                print("lr-quality learn: refusing to ship a worse model (use --force to override)", file=sys.stderr)
+                return 1
+    model, _, _ = Ln.fit_all(F, recs, seed=a.seed)  # ship: refit on all labels; held-out numbers above are from the dev-only fit
+    model["dev_model"] = dm
+    model["heldout"] = {"summary": sm, "n": new["n"], "second_opinion": new["second_opinion"], "tilt": new.get("tilt")}
+    M.save(model, a.out)
+    report["written"] = a.out
+    _out(report)
+    return 0
 
 
 def _common(sp, targets=True):
@@ -136,7 +224,28 @@ def main(argv=None):
     s.add_argument("folder")
     s.add_argument("--out", default="targets.json")
     s.add_argument("--long-edge", type=int, default=1600)
-    s.set_defaults(fn=cmd_learn)
+    s.set_defaults(fn=cmd_learn_targets)
+    for name, fn, h in (("eval", cmd_eval, "metrics: CV on dev + held-out (fit on dev, or --model)"),
+                        ("learn", cmd_learn, "fit model.json from reviews; refuses a model worse on held-out")):
+        s = sub.add_parser(name, help=h)
+        s.add_argument("--reviews", action="append", required=True, metavar="labels.ndjson")
+        s.add_argument("--weak", action="append", metavar="final.ndjson", help="triage visible_problems as low-weight labels")
+        s.add_argument("--features", required=True, metavar="feats.ndjson", help="cache from `lr-quality features`")
+        s.add_argument("--meta", metavar="review_set.json")
+        s.add_argument("--seed", type=int, default=7)
+        if name == "eval":
+            s.add_argument("--model")
+            s.add_argument("--json")
+        else:
+            s.add_argument("--out", required=True)
+            s.add_argument("--add-review", action="append", metavar="new.ndjson", help="append to the first --reviews file, retrain")
+            s.add_argument("--force", action="store_true")
+        s.set_defaults(fn=fn)
+    s = sub.add_parser("features", help="analyse a folder of <id>.jpg previews in parallel -> feature cache NDJSON")
+    s.add_argument("paths", nargs="+")
+    s.add_argument("--out", required=True)
+    s.add_argument("--jobs", type=int, default=8)
+    s.set_defaults(fn=cmd_features)
     try:
         a = ap.parse_args(argv)
         return a.fn(a)
