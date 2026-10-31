@@ -71,6 +71,8 @@ def _ambiguous(model, P, width):
     """P: {code: array}. A photo is ambiguous when any issue's probability is within `width` of its operating threshold."""
     amb = np.zeros(len(next(iter(P.values()))), bool)
     for code, p in P.items():
+        if code == "tilted_horizon":
+            continue  # opt-in flag, outside the second-opinion budget
         t = model["issues"][code]["threshold"]
         amb |= np.nan_to_num(M.logit_dist(p, t) <= width, nan=False)
     return amb
@@ -146,6 +148,8 @@ def evaluate(model, F, recs, results=None, groups=("kind", "scene")):
     amb = _ambiguous(model, P, model["second_opinion"]["width"])
     err = np.zeros(len(recs), bool)
     for code, im in model["issues"].items():
+        if code == "tilted_horizon":
+            continue
         y2 = M._label_vec(recs, code, 2)
         err |= (y2 >= 0) & ((P[code] >= im["threshold"]) != (y2 == 1))
     out["second_opinion"] = {"rate": float(amb.mean()), "width": model["second_opinion"]["width"], "n_photos_with_error": int(err.sum()),

@@ -271,13 +271,13 @@ def _round(o):
     return o
 
 
-def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default") -> dict:
+def analyze(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default", tilt_flag=False) -> dict:
     """Analyse one image (bytes | path | PIL image). accel: 'auto' (cv2 if installed) or 'numpy'."""
     return finalize(analyze_raw(image, scene_hint=scene_hint, thresholds=thresholds, targets=targets,
-                                long_edge=long_edge, accel=accel, model=model))
+                                long_edge=long_edge, accel=accel, model=model, tilt_flag=tilt_flag))
 
 
-def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default") -> dict:
+def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_edge=1600, accel="auto", model="default", tilt_flag=False) -> dict:
     """Like analyze() but keeps the private `_th` key so batch_pass can re-evaluate flags."""
     if scene_hint is not None and scene_hint not in SCENES:
         raise ValueError(f"scene_hint must be one of {SCENES}")
@@ -312,7 +312,7 @@ def analyze_raw(image, *, scene_hint=None, thresholds=None, targets=None, long_e
     mdl = _resolve_model(model)
     if mdl:  # learned assessment replaces the v1 rule flags; the rules stay available as flags_v1
         res["flags_v1"], res["needs_second_opinion_v1"] = res["flags"], res["needs_second_opinion"]
-        res["assessment"], res["flags"], res["needs_second_opinion"] = assess.run(mdl, res["features"], res["image"])
+        res["assessment"], res["flags"], res["needs_second_opinion"] = assess.run(mdl, res["features"], res["image"], tilt_flag=tilt_flag)
     res["_th"] = th  # stripped by finalize(); kept so the batch pass can re-evaluate
     return res
 

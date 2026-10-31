@@ -1,5 +1,9 @@
 # lr_quality: exposure / focus / tilt / noise metrics
 
+> **v2 (schema `lr_quality/2`)**: learned, calibrated per-issue probabilities, severities, suggested fixes and a model-driven
+> second-opinion rule, trained from reviews with `lr-quality learn`. See [quality-v2.md](quality-v2.md). The v1 rule engine below is
+> still available (`--model none`) and its flags are kept as `flags_v1`.
+
 `lr_quality` turns a JPEG into one structured JSON object of cheap, deterministic image metrics, so a caller
 (a local vision-model pipeline, a daemon, a script) can pre-review ~1,000 photos and escalate only the doubtful ones.
 CLI: `lr-quality` (or `python -m lr_quality`). Python: `lr_quality.analyze(...)`.

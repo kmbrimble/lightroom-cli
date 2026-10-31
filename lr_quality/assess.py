@@ -34,7 +34,7 @@ def _fix(code, sev, f, tilt):
     return None
 
 
-def run(model, feats: dict, image: dict, uniform_range: float = 8.0, min_long_edge: int = 256):
+def run(model, feats: dict, image: dict, uniform_range: float = 8.0, min_long_edge: int = 256, tilt_flag: bool = False):
     """-> (assessment, flags, needs_second_opinion)."""
     f = M.derive(feats)
     tilt = M.predict_tilt(model["tilt"], f)
@@ -45,6 +45,10 @@ def run(model, feats: dict, image: dict, uniform_range: float = 8.0, min_long_ed
         p, sev, ps = M.predict_issue(im, f)
         t = im["threshold"]
         noticeable = p >= t
+        if code == "tilted_horizon" and not tilt_flag:
+            # opt-in: Sonnet reviews found no tilt >= 2 deg in 1,523 photos, so a default tilt flag is noise (docs/quality-v2.md)
+            issues[code] = {"probability": round(p, 3), "severity": sev, "noticeable": False, "enabled": False, "threshold": round(t, 3)}
+            continue
         issues[code] = {"probability": round(p, 3), "severity": sev, "noticeable": bool(noticeable), "threshold": round(t, 3)}
         if noticeable:
             flags.append({"code": code, "severity": "bad" if sev >= 3 else "warn", "value": round(p, 3), "threshold": round(t, 3),

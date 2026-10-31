@@ -19,7 +19,8 @@ FEATURES = {
     "underexposed": ["exp_mean", "exp_log_mean", "exp_p50", "exp_p75", "exp_p95", "exp_center_mean", "exp_lower_mean", "lo_pct_30"],
     "overexposed": ["exp_mean", "exp_log_mean", "exp_p50", "exp_p25", "exp_p05", "exp_center_mean", "hi_pct_240", "hi_big_pct"],
     "soft_focus": ["foc_lv_max", "foc_lv_p90", "foc_lv_p75", "foc_lv_med", "foc_top_ratio", "foc_ratio_min", "foc_acutance",
-                   "foc_edge_p99", "foc_top_e1", "foc_tex_frac", "foc_flat_frac", "foc_near_best_frac", "noise_sigma"],
+                   "foc_edge_p99", "foc_top_e1", "foc_tex_frac", "foc_flat_frac", "foc_near_best_frac", "noise_sigma", "foc_lvc_max", "foc_lvc_p90",
+                   "foc_lv_ratio"],
     "motion_blur": ["foc_top_ratio", "foc_top_ratio_x", "foc_top_ratio_y", "foc_ratio_min", "foc_ratio_aniso", "foc_acutance",
                     "foc_lv_p90", "foc_lv_max", "foc_edge_p99", "foc_top_e1", "foc_near_best_frac"],
     "noisy": ["noise_sigma", "exp_mean", "exp_p25", "foc_lv_med", "lo_pct_30", "foc_flat_frac"],
@@ -28,7 +29,7 @@ FEATURES = {
 }
 FEATURES["blur"] = sorted(set(FEATURES["soft_focus"]) | set(FEATURES["motion_blur"]))
 TILT_REG = ["hough_w", "st_h_w", "st_h_g", "st_v_w", "ori_h_w", "ori_v_w"]
-_LOG = ("_pct", "foc_lv", "foc_edge", "foc_top_e1", "foc_global", "noise_sigma", "hi_blobs")
+_LOG = ("_pct", "foc_lv_", "foc_lv", "foc_lvc", "foc_edge", "foc_top_e1", "foc_global", "noise_sigma", "hi_blobs")
 
 
 def derive(f: dict) -> dict:
@@ -54,7 +55,7 @@ def derive(f: dict) -> dict:
 
 
 def _tf(name, v):
-    return np.log1p(max(v, 0.0)) if any(k in name for k in _LOG) else v
+    return np.log1p(max(v, 0.0)) if name != "foc_lv_ratio" and any(k in name for k in _LOG) else v
 
 
 def vec(f: dict, names) -> np.ndarray:

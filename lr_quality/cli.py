@@ -33,7 +33,7 @@ def _expand(paths):
 def _kw(a):
     return dict(scene_hint=a.scene_hint, thresholds=_json_file(a.thresholds), targets=_json_file(a.targets),
                 long_edge=a.long_edge, accel="numpy" if a.no_cv2 else "auto",
-                model=None if a.model == "none" else (a.model or "default"))
+                model=None if a.model == "none" else (a.model or "default"), tilt_flag=a.tilt)
 
 
 def _err(src, e):
@@ -238,6 +238,7 @@ def _common(sp, targets=True):
     sp.add_argument("--targets", metavar="targets.json")
     sp.add_argument("--long-edge", type=int, default=1600)
     sp.add_argument("--model", metavar="model.json|none", help="learned model (default: shipped); 'none' = v1 rule flags only")
+    sp.add_argument("--tilt", action="store_true", help="emit the learned tilted_horizon flag/fix (off by default: unvalidated)")
     sp.add_argument("--no-cv2", action="store_true", help="force the pure numpy path")
 
 

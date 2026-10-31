@@ -27,7 +27,7 @@ def test_score_resume_and_batch_fields(tmp_path):
     assert (s["scored"], s["failed"]) == (6, 1)
     rows = [json.loads(x) for x in out.read_text().splitlines()]
     assert [r["id"] for r in rows] == ["1", "2", "3", "4", "5", "6"]
-    assert rows[0]["schema"] == "lr_quality/1" and rows[0]["scene_hint"] == "landscape"
+    assert rows[0]["schema"] == "lr_quality/2" and rows[0]["scene_hint"] == "landscape"
     assert rows[0]["focus"]["relative_to_batch"] is not None  # batch >= min_batch
     assert rows[0]["exposure"]["batch_percentile"] is not None
     # resume: nothing re-analysed (raw cache keeps the 6 successes)

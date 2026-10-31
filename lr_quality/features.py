@@ -106,6 +106,9 @@ def _focus(g, lap, gx, gy, q):
     e2 = _tilesum(mag2, ty, tx)
     ex1, ey1 = _tilesum(np.abs(gx), ty, tx), _tilesum(np.abs(gy), ty, tx)
     ex2, ey2 = _tilesum(np.abs(gx2), ty, tx), _tilesum(np.abs(gy2), ty, tx)
+    lap_c = g2[:-2, 1:-1] + g2[2:, 1:-1] + g2[1:-1, :-2] + g2[1:-1, 2:] - 4 * g2[1:-1, 1:-1]  # Laplacian at half resolution
+    tyc, txc = max(1, min(ty, lap_c.shape[0] // 4)), max(1, min(tx, lap_c.shape[1] // 4))
+    tvc = np.maximum(_tilesum(lap_c * lap_c, tyc, txc) - _tilesum(lap_c, tyc, txc) ** 2, 0)
     tl = _tilesum(g[1:-1, 1:-1], ty, tx)
     valid = (tl > 8) & (tl < 245)
     if valid.sum() < 3:
@@ -133,6 +136,8 @@ def _focus(g, lap, gx, gy, q):
         # relative to the image's own best tile: how many tiles are nearly as sharp as the sharpest
         "foc_near_best_frac": float((tv >= 0.25 * max(best, 1e-6)).mean()),
         "foc_global": float(lap.var()),
+        "foc_lvc_max": float(tvc.max()), "foc_lvc_p90": float(np.percentile(tvc, 90)), "foc_lvc_p75": float(np.percentile(tvc, 75)),
+        "foc_lv_ratio": float(np.log((best + 1.0) / (tvc.max() + 1.0))),
     }, tv, valid, gx2, gy2
 
 
