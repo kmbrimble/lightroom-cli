@@ -53,6 +53,8 @@ local function getLogger()
     return logger
 end
 
+local WriteGate = require 'WriteGate'
+local Guard = require 'Guard'
 local CatalogModule = {}
 
 -- Search photos (deprecated: delegates to findPhotos)
@@ -306,7 +308,7 @@ function CatalogModule.setSelectedPhotos(params, callback)
     -- Use withWriteAccessDo with timeout to prevent blocking
     local selectResult = nil
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Photo Selection", function()
+        WriteGate.run(catalog, "Set Photo Selection", function()
             local photos = {}
             local notFound = {}
 
@@ -343,7 +345,7 @@ function CatalogModule.setSelectedPhotos(params, callback)
         logger:error("Failed to set photo selection: " .. tostring(writeError))
         callback({
             error = {
-                code = "WRITE_ACCESS_BLOCKED",
+                code = WriteGate.codeFor(writeError, "WRITE_ACCESS_BLOCKED"),
                 message = "Failed to set photo selection: " .. tostring(writeError)
             }
         })
@@ -1036,7 +1038,7 @@ function CatalogModule.setRating(params, callback)
 
     local catalog = LrApplication.activeCatalog()
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Rating", function()
+        WriteGate.run(catalog, "Set Rating", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then error("Photo not found: " .. tostring(photoId)) end
             -- LR API: setRawMetadata("rating", 0) throws; use nil for unrated
@@ -1049,7 +1051,7 @@ function CatalogModule.setRating(params, callback)
     if writeSuccess then
         callback(ErrorUtils.createSuccess({ photoId = photoId, rating = rating, message = "Rating set successfully" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to set rating: " .. tostring(writeError)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"), "Failed to set rating: " .. tostring(writeError)))
     end
 end
 
@@ -1072,7 +1074,7 @@ function CatalogModule.addKeywords(params, callback)
     local catalog = LrApplication.activeCatalog()
     local addedKeywords = {}
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Add Keywords", function()
+        WriteGate.run(catalog, "Add Keywords", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then error("Photo not found: " .. tostring(photoId)) end
             for _, kwName in ipairs(keywords) do
@@ -1088,7 +1090,7 @@ function CatalogModule.addKeywords(params, callback)
     if writeSuccess then
         callback(ErrorUtils.createSuccess({ photoId = photoId, addedKeywords = addedKeywords, count = #addedKeywords, message = "Keywords added successfully" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to add keywords: " .. tostring(writeError)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"), "Failed to add keywords: " .. tostring(writeError)))
     end
 end
 
@@ -1111,7 +1113,7 @@ function CatalogModule.setFlag(params, callback)
 
     local catalog = LrApplication.activeCatalog()
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Flag", function()
+        WriteGate.run(catalog, "Set Flag", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then
                 error("Photo not found: " .. tostring(photoId))
@@ -1127,7 +1129,7 @@ function CatalogModule.setFlag(params, callback)
             message = "Flag set successfully"
         }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED",
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"),
             "Failed to set flag: " .. tostring(writeError)))
     end
 end
@@ -1183,7 +1185,7 @@ function CatalogModule.setTitle(params, callback)
 
     local catalog = LrApplication.activeCatalog()
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Title", function()
+        WriteGate.run(catalog, "Set Title", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then error("Photo not found: " .. tostring(photoId)) end
             photo:setRawMetadata("title", title)
@@ -1193,7 +1195,7 @@ function CatalogModule.setTitle(params, callback)
     if writeSuccess then
         callback(ErrorUtils.createSuccess({ photoId = photoId, title = title, message = "Title set successfully" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to set title: " .. tostring(writeError)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"), "Failed to set title: " .. tostring(writeError)))
     end
 end
 
@@ -1214,7 +1216,7 @@ function CatalogModule.setCaption(params, callback)
 
     local catalog = LrApplication.activeCatalog()
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Caption", function()
+        WriteGate.run(catalog, "Set Caption", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then error("Photo not found: " .. tostring(photoId)) end
             photo:setRawMetadata("caption", caption)
@@ -1224,7 +1226,7 @@ function CatalogModule.setCaption(params, callback)
     if writeSuccess then
         callback(ErrorUtils.createSuccess({ photoId = photoId, caption = caption, message = "Caption set successfully" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to set caption: " .. tostring(writeError)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"), "Failed to set caption: " .. tostring(writeError)))
     end
 end
 
@@ -1245,7 +1247,7 @@ function CatalogModule.setColorLabel(params, callback)
 
     local catalog = LrApplication.activeCatalog()
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Set Color Label", function()
+        WriteGate.run(catalog, "Set Color Label", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then error("Photo not found: " .. tostring(photoId)) end
             photo:setRawMetadata("colorNameForLabel", label)
@@ -1255,7 +1257,7 @@ function CatalogModule.setColorLabel(params, callback)
     if writeSuccess then
         callback(ErrorUtils.createSuccess({ photoId = photoId, label = label, message = "Color label set successfully" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to set color label: " .. tostring(writeError)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"), "Failed to set color label: " .. tostring(writeError)))
     end
 end
 
@@ -1300,7 +1302,8 @@ function CatalogModule.applyDevelopPreset(params, callback)
     end
 
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Apply Develop Preset", function()
+        WriteGate.run(catalog, "Apply Develop Preset", function()
+            Guard.assertVirtualCopy(photo)
             photo:applyDevelopPreset(targetPreset)
         end, { timeout = 10 })
     end)
@@ -1312,7 +1315,7 @@ function CatalogModule.applyDevelopPreset(params, callback)
             message = "Develop preset applied successfully"
         }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED",
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"),
             "Failed to apply develop preset: " .. tostring(writeError)))
     end
 end
@@ -1338,7 +1341,8 @@ function CatalogModule.createDevelopSnapshot(params, callback)
     end
 
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Develop Snapshot", function()
+        WriteGate.run(catalog, "Create Develop Snapshot", function()
+            Guard.assertVirtualCopy(photo)
             photo:createDevelopSnapshot(name)
         end, { timeout = 10 })
     end)
@@ -1350,7 +1354,7 @@ function CatalogModule.createDevelopSnapshot(params, callback)
             message = "Develop snapshot created successfully"
         }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED",
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"),
             "Failed to create develop snapshot: " .. tostring(writeError)))
     end
 end
@@ -1397,7 +1401,8 @@ function CatalogModule.pasteSettings(params, callback)
     end
 
     local writeSuccess, writeError = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Paste Develop Settings", function()
+        WriteGate.run(catalog, "Paste Develop Settings", function()
+            Guard.assertVirtualCopy(photo)
             photo:pasteSettings()
         end, { timeout = 10 })
     end)
@@ -1408,7 +1413,7 @@ function CatalogModule.pasteSettings(params, callback)
             message = "Develop settings pasted successfully"
         }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED",
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeError, "OPERATION_FAILED"),
             "Failed to paste develop settings: " .. tostring(writeError)))
     end
 end
@@ -1422,14 +1427,15 @@ function CatalogModule.rotateLeft(params, callback)
         return
     end
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Rotate Left", function()
+        WriteGate.run(catalog, "Rotate Left", function()
+            Guard.assertVirtualCopy(photo)
             photo:rotateLeft()
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ message = "Rotated left" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1442,14 +1448,15 @@ function CatalogModule.rotateRight(params, callback)
         return
     end
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Rotate Right", function()
+        WriteGate.run(catalog, "Rotate Right", function()
+            Guard.assertVirtualCopy(photo)
             photo:rotateRight()
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ message = "Rotated right" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1462,14 +1469,14 @@ function CatalogModule.createVirtualCopy(params, callback)
         return
     end
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Virtual Copy", function()
+        WriteGate.run(catalog, "Create Virtual Copy", function()
             photo:createVirtualCopy()
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ message = "Virtual copy created" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1489,7 +1496,7 @@ function CatalogModule.setMetadata(params, callback)
     end
 
     local catalog = LrApplication.activeCatalog()
-    catalog:withWriteAccessDo("Set Metadata", function()
+    local gateStatus = catalog:withWriteAccessDo("Set Metadata", function()
         local photo = catalog:getPhotoByLocalId(tonumber(photoId))
         if not photo then
             callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "Photo with ID " .. photoId .. " not found"))
@@ -1504,6 +1511,8 @@ function CatalogModule.setMetadata(params, callback)
             callback(ErrorUtils.createError("OPERATION_FAILED", "Failed to set metadata: " .. tostring(err)))
         end
     end, { timeout = 10 })
+    local aborted = WriteGate.abortResponse(gateStatus, "Set Metadata")
+    if aborted then callback(aborted) end
 end
 
 function CatalogModule.createCollection(params, callback)
@@ -1515,14 +1524,14 @@ function CatalogModule.createCollection(params, callback)
     end
     local catalog = LrApplication.activeCatalog()
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Collection", function()
+        WriteGate.run(catalog, "Create Collection", function()
             catalog:createCollection(name, nil, true)
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ name = name, message = "Collection created" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1536,14 +1545,14 @@ function CatalogModule.createSmartCollection(params, callback)
     local searchDesc = params.searchDesc or {}
     local catalog = LrApplication.activeCatalog()
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Smart Collection", function()
+        WriteGate.run(catalog, "Create Smart Collection", function()
             catalog:createSmartCollection(name, searchDesc, nil, true)
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ name = name, message = "Smart collection created" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1556,14 +1565,14 @@ function CatalogModule.createCollectionSet(params, callback)
     end
     local catalog = LrApplication.activeCatalog()
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Collection Set", function()
+        WriteGate.run(catalog, "Create Collection Set", function()
             catalog:createCollectionSet(name, nil, true)
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ name = name, message = "Collection set created" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1576,14 +1585,14 @@ function CatalogModule.createKeyword(params, callback)
     end
     local catalog = LrApplication.activeCatalog()
     local success, err = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Create Keyword", function()
+        WriteGate.run(catalog, "Create Keyword", function()
             catalog:createKeyword(keyword, {}, true, nil, true)
         end, { timeout = 10 })
     end)
     if success then
         callback(ErrorUtils.createSuccess({ keyword = keyword, message = "Keyword created" }))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(err, "OPERATION_FAILED"), tostring(err)))
     end
 end
 
@@ -1599,7 +1608,7 @@ function CatalogModule.removeKeyword(params, callback)
     local opResult = nil
     local opError = nil
     local writeSuccess, writeErr = ErrorUtils.safeCall(function()
-        catalog:withWriteAccessDo("Remove Keyword", function()
+        WriteGate.run(catalog, "Remove Keyword", function()
             local photo = catalog:getPhotoByLocalId(tonumber(photoId))
             if not photo then
                 opError = { code = "PHOTO_NOT_FOUND", message = "Photo not found" }
@@ -1630,7 +1639,7 @@ function CatalogModule.removeKeyword(params, callback)
     elseif writeSuccess and opResult then
         callback(ErrorUtils.createSuccess(opResult))
     else
-        callback(ErrorUtils.createError("OPERATION_FAILED", tostring(writeErr)))
+        callback(ErrorUtils.createError(WriteGate.codeFor(writeErr, "OPERATION_FAILED"), tostring(writeErr)))
     end
 end
 
@@ -1669,7 +1678,7 @@ function CatalogModule.removeFromCatalog(params, callback)
         return
     end
     local catalog = LrApplication.activeCatalog()
-    catalog:withWriteAccessDo("Remove From Catalog", function()
+    local gateStatus = catalog:withWriteAccessDo("Remove From Catalog", function()
         local photo = catalog:getPhotoByLocalId(tonumber(photoId))
         if not photo then
             callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "Photo not found"))
@@ -1684,6 +1693,8 @@ function CatalogModule.removeFromCatalog(params, callback)
             callback(ErrorUtils.createError("OPERATION_FAILED", tostring(err)))
         end
     end, { timeout = 10 })
+    local aborted = WriteGate.abortResponse(gateStatus, "Remove From Catalog")
+    if aborted then callback(aborted) end
 end
 
 -- Get photos from a specific collection by ID

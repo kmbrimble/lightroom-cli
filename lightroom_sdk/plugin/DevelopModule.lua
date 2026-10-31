@@ -31,7 +31,9 @@ local ErrorUtils = getErrorUtils()
 -- Lazy load Lightroom modules
 local function ensureLrModules()
     if not LrDevelopController then
-        LrDevelopController = import 'LrDevelopController'
+        -- Guard.guardController: write functions re-check that the target photo is a
+        -- virtual copy immediately before each real call (see Guard.lua).
+        LrDevelopController = require('Guard').guardController(import 'LrDevelopController')
     end
     if not LrApplication then
         LrApplication = import 'LrApplication'

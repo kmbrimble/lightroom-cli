@@ -36,6 +36,8 @@ dev = [
     "pytest-cov>=4.0",
     "ruff>=0.4",
 ]
+# Offline Lua 5.1 tests of the Lightroom plugin (tests/lua); skipped when lupa is absent
+lua-tests = ["lupa>=2.0"]
 
 [project.urls]
 Homepage = "https://github.com/znznzna/lightroom-cli"

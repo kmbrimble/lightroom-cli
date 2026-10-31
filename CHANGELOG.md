@@ -4,11 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased (kmbrimble fork)
 
+### Added
+- `Guard.lua`: Develop-module writes are refused (`GUARD_DENIED`) unless the photo is a virtual copy; command wrappers plus a guarded `LrDevelopController` re-check right before each write. Pref `guardEnabled` (default true).
+- Plugin auto-start (`autoStart`): the socket bridge now starts itself after plugin init, with retries; start is idempotent and the menu item reports "already running".
+- `WriteGate.lua`: catalog write handlers return `WRITE_ABORTED` instead of never replying when the write gate is not obtained.
+- `tests/lua`: offline Lua 5.1 tests (optional `lua-tests` extra, needs `lupa`).
+- Persistent per-desktop daemon `lrd` (`lightroom_sdk/daemon/`) that holds the single plugin connection, multiplexes many clients over a loopback HTTP API, and enforces the virtual-copy rule; stdlib-only thin client `lightroom_sdk/lrc.py`; Windows Scheduled Task installer under `packaging/windows/`; see `docs/daemon.md`
+
 ### Fixed
 - Windows paths in plugin replies produced invalid JSON (unescaped backslashes), so the client dropped them and the call timed out after 30 s — the Lua JSON string encoder now escapes `\`, `"` and control characters
 - `LrProgressScope` leak in the "Generating Preview" path left a stuck progress bar — the scope is now always closed, and thumbnail waits are bounded (commit bd94810)
 - ~4 s of latency per call on Windows — clients connected to `localhost`, which resolves to `::1` first while the plugin listens only on IPv4 `127.0.0.1`, so each call paid ~2 s per refused `::1` attempt (two connects per call). The default host is now `127.0.0.1`; override with `LR_BRIDGE_HOST`
 - `tests/test_paths.py` failures (module-level `import sys` in `paths.py` so tests can patch it)
+- `Config:get` ignored a stored `false` (so `autoStart = false` could never take effect).
+- `SimpleSocketBridge`: a failed bind no longer wedges later start attempts; starting after Stop clears `shuttingDown`.
 
 ### Changed
 - `tests/test_version_sync.py` runs against a temporary copy and no longer rewrites tracked files
