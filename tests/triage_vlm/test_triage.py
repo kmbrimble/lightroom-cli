@@ -57,11 +57,21 @@ def make_claude(calls):
     return H
 
 
+def _tiny_jpeg():
+    """A real 8x8 JPEG when Pillow is installed (cascade re-encodes with PIL), else opaque bytes."""
+    try:
+        import io
+        from PIL import Image
+        buf = io.BytesIO(); Image.new("RGB", (8, 8), (90, 120, 150)).save(buf, "JPEG"); return buf.getvalue()
+    except ImportError:
+        return b"\xff\xd8fake\xff\xd9"
+
+
 @pytest.fixture
 def img(tmp_path):
     p = tmp_path / "previews"; p.mkdir()
     def mk(name):
-        f = p / f"{name}.jpg"; f.write_bytes(b"\xff\xd8fake\xff\xd9"); os.utime(f, (1, 1)); return f
+        f = p / f"{name}.jpg"; f.write_bytes(_tiny_jpeg()); os.utime(f, (1, 1)); return f
     mk.dir = p
     return mk
 
