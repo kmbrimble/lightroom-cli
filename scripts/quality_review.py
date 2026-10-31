@@ -88,6 +88,8 @@ def review(path, key, url=API_URL, model=MODEL, retries=5, sleep=time.sleep):
                 {"type": "text", "text": PROMPT}]}]}
     last = "?"
     for i in range(retries):
+        if i and last.startswith("no usable answer (stop_reason=max_tokens"):
+            body["max_tokens"] = 1400  # retries only: first-pass settings stay identical to round 1
         try:
             r = _post(url, body, {"x-api-key": key, "anthropic-version": "2023-06-01"}, timeout=120)
         except urllib.error.HTTPError as e:
@@ -128,7 +130,7 @@ def read_ndjson(p):
     return out
 
 
-def run_reviews(ids, kinds, previews, out, key, max_usd, workers=3, log=print, **kw):
+def run_reviews(ids, kinds, previews, out, key, max_usd, workers=3, log=print, extra=None, **kw):
     """Append one row per id to `out`; skip ids already there. Returns (done, spent, stopped_at_budget)."""
     have = read_ndjson(out)
     seen = {r["id"] for r in have}
@@ -149,7 +151,7 @@ def run_reviews(ids, kinds, previews, out, key, max_usd, workers=3, log=print, *
             log(f"ERR {i}: {scrub(e, key)[:200]}")
             return
         row = {"id": i, "filename": kinds.get(i, {}).get("filename"), "kind": kinds.get(i, {}).get("kind", "arw"), **f,
-               "usage": u, "model": kw.get("model", MODEL)}
+               "usage": u, "model": kw.get("model", MODEL), **(extra or {})}
         with lock:
             st["spent"] += cost_usd(u)
             st["n"] += 1
@@ -229,6 +231,8 @@ def main(argv=None):
     a.add_argument("--seed", type=int, default=20261031)
     a.add_argument("--max-usd", type=float, default=9.0)
     a.add_argument("--limit", type=int, default=0)
+    a.add_argument("--all", action="store_true", help="round 2: label every preview not yet in labels.ndjson (rows get round=2)")
+    a.add_argument("--new-usd", type=float, default=0, help="cap on NEW spend this run (added to spend already recorded in both label files)")
     a.add_argument("--repeat", type=int, default=0, help="re-review N random already-labelled photos into labels_repeat.ndjson")
     a.add_argument("--api-url", default=API_URL)
     o = a.parse_args(argv)
@@ -248,13 +252,20 @@ def main(argv=None):
             ids = [r["id"] for r in read_ndjson(lab)]
             ids = random.Random(o.seed).sample(ids, min(o.repeat, len(ids)))
             out = rep
+        elif o.all:
+            have = {r["id"] for r in read_ndjson(lab)}
+            ids = sorted(f[:-4] for f in os.listdir(f"{o.base}/previews") if f.endswith(".jpg") and f[:-4] not in have)
+            out = lab
         else:
             ids, out = [p["id"] for p in json.load(open(rs))["photos"]], lab
         if o.limit:
             ids = [i for i in ids if i not in {r["id"] for r in read_ndjson(out)}][: o.limit]
         # spend counts BOTH files so the cap is global
         other = sum(cost_usd(r.get("usage")) for r in read_ndjson(rep if out == lab else lab))
-        n, spent, stop = run_reviews(ids, km, f"{o.base}/previews", out, key, o.max_usd - other,
+        cap = o.max_usd - other
+        if o.new_usd:
+            cap = sum(cost_usd(r.get("usage")) for r in read_ndjson(out)) + o.new_usd
+        n, spent, stop = run_reviews(ids, km, f"{o.base}/previews", out, key, cap, extra={"round": 2} if o.all else None,
                                      log=lambda m: print(m, flush=True), url=o.api_url)
         print(f"done n={n} spent_this_file=${spent:.3f} stopped={stop}", flush=True)
 

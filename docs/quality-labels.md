@@ -53,3 +53,17 @@ python3 scripts/quality_review.py agree
 * Against lr_quality flags (by stratum): blown_highlights stratum 35/120 labelled highlights>=2; soft stratum 35/100 labelled focus>=1 or
   motion_blur>=1 (11/100 focus>=2); dark stratum 32/59 shadows>=2 or exposure<=-1; tilted stratum 0/40 with |tilt|>=1; noflag stratum
   3/100 with a clear problem (highlights/shadows/focus>=2 or |exposure|>=2). Low flag precision, low false-negative rate.
+
+## Round 2 (whole catalog)
+
+`review --all --new-usd 14` labelled every preview not yet in `labels.ndjson` (1,104 photos) with the same prompt, model and
+settings (no rubric change, so no `rubric_version`); new rows carry `"round": 2`, round-1 rows have no `round` field. The only
+change is that a retry after `stop_reason=max_tokens` raises max_tokens to 1400 (first attempts stay at 700); this labelled 880392.
+Result: 1,523 unique ids, 0 errors. Spend: round 2 $10.75, whole project (rounds 1+2+repeat) about $15.25.
+
+`scripts/quality_summary.py` writes `review_summary.md` (counts per field, ids per fix) and `review_candidates.csv` (keeper_score <= 2)
+next to the labels. Per-fix id lists use: fix present and severity >= 2 (straighten: |tilt| >= 1 because no label reaches 2),
+or keeper_score <= 2.
+
+Known label quirks: the worst-scored photos are dominated by slot-canyon frames with heavy motion blur (possibly intentional ICM) and
+blown-out frames; Claude is lenient (1 instead of 2) on bright white water; tilt is almost never reported (10 labels with |tilt| >= 1).

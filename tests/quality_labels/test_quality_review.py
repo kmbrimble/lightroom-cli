@@ -103,3 +103,23 @@ def test_build_set_unique_and_deterministic(tmp_path):
     a, b = qr.build_set(str(tmp_path), 1), qr.build_set(str(tmp_path), 1)
     ids = [p["id"] for p in a["photos"]]
     assert a == b and len(ids) == len(set(ids))
+
+
+def test_retry_after_max_tokens_raises_limit(prev):
+    calls, state = [], {"n": 0}
+
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a):
+            pass
+
+        def do_POST(self):
+            calls.append(json.loads(self.rfile.read(int(self.headers["Content-Length"])))["max_tokens"])
+            first = len(calls) == 1
+            out = json.dumps({"content": [] if first else [{"type": "tool_use", "name": "record_quality", "input": OK}],
+                              "stop_reason": "max_tokens" if first else "tool_use", "usage": {}}).encode()
+            self.send_response(200); self.send_header("Content-Length", str(len(out))); self.end_headers(); self.wfile.write(out)
+    srv = HTTPServer(("127.0.0.1", 0), H)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    f, _ = qr.review(os.path.join(prev, "a.jpg"), KEY, url=f"http://127.0.0.1:{srv.server_port}", sleep=lambda s: None)
+    srv.shutdown()
+    assert calls == [700, 1400] and f["keeper_score"] == 4
