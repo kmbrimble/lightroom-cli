@@ -2,6 +2,8 @@
 
 Policy (user: keep it LIGHT):
   * the ONLY routine blocking rule: Develop writes (class DW) only on virtual copies;
+  * class DR (develop reset, only develop.clearAutoTone: fixed keys -> defaults) is the one named
+    exemption: allowed on originals, no VC resolve, never a read so the scheduler always audits it;
   * hard rules: default-deny unknown names, non-overridable disk-delete deny regex,
     removeFromCatalog needs flags.allow_remove_from_catalog, editInPhotoshop needs flags.allow_external_edit.
 Everything else (keywords, collections, flags, ratings, setMetadata with ANY key, creating VCs) passes.
@@ -13,7 +15,7 @@ from dataclasses import dataclass, field
 from .classes import CLASSES, READ_CLASSES
 
 # Names that could delete files from disk. Tuned NOT to hit develop.deleteMask / removeFromCatalog /
-# removeKeyword (tests assert none of the 130 known names match). No flag can override this.
+# removeKeyword (tests assert none of the known names match). No flag can override this.
 DENY_RE = re.compile(
     r"(deletefile|deletephoto|deleteoriginal|deletefrom|fromdisk|todisk|trash|recycle|unlink|rmdir|rmtree"
     r"|removefile|wipe|shred|erase|purge|harddelete|permanentl?y)",

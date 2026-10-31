@@ -5,6 +5,7 @@ R   pure catalog read            RD  read via Develop controller / target photo
 UI  selection/UI state           LM  library metadata write (originals OK)
 LS  collection/keyword create    VC  create virtual copy
 DW  Develop write (VC only)      RM  remove from catalog (flag)
+DR  develop reset: removes edits (fixed keys -> defaults), allowed on originals, always audited
 EXT external side effect (flag)
 
 Stdlib only; do not import lightroom_sdk.* (its __init__ pulls pydantic).
@@ -26,6 +27,7 @@ CLASSES = {
     "develop.getProcessVersion": "RD",
     "develop.setProcessVersion": "DW",
     "develop.resetAllDevelopAdjustments": "DW",
+    "develop.clearAutoTone": "DR",
     "develop.getCurvePoints": "RD",
     "develop.setCurvePoints": "DW",
     "develop.setCurveLinear": "DW",
