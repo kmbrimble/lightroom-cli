@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - `WriteGate.lua`: catalog write handlers return `WRITE_ABORTED` instead of never replying when the write gate is not obtained.
 - `tests/lua`: offline Lua 5.1 tests (optional `lua-tests` extra, needs `lupa`).
 - Persistent per-desktop daemon `lrd` (`lightroom_sdk/daemon/`) that holds the single plugin connection, multiplexes many clients over a loopback HTTP API, and enforces the virtual-copy rule; stdlib-only thin client `lightroom_sdk/lrc.py`; Windows Scheduled Task installer under `packaging/windows/`; see `docs/daemon.md`
+- `scripts/catalog_cleanup.py`: one-off resumable catalog clean-up runner (remove `-HDR-2.dng` duplicates, remove bracket source ARWs of merged sets, clear Auto Tone) with preflight assertions, NDJSON audit log and no disk-delete code path; see `docs/catalog-cleanup.md`
 
 - `develop.clearAutoTone` (class DR, `AutoToneModule.lua`): removes Auto Tone (8 tone sliders -> 0, Auto* flags -> false) from any photo incl. originals, `{photoIds (max 50), dryRun}`; the single named exemption to the virtual-copy rule (`Guard.DR_COMMANDS`), daemon class `DR`. Key evidence: `/projects/.lr-scratch/autotone/keys.md`
 
