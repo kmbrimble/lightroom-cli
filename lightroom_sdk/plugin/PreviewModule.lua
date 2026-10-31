@@ -95,6 +95,16 @@ function PreviewModule.generatePreview(params, callback)
         })
         
         progressScope:setPortionComplete(0.1)
+
+        -- Always close the progress scope on EVERY exit path. An unclosed scope stays on
+        -- screen in Lightroom forever ("Generating Preview" stuck at 30%).
+        local function closeScope()
+            pcall(function() progressScope:done() end)
+        end
+        local function fail(code, message)
+            closeScope()
+            callback({ error = { code = code, message = message } })
+        end
             
             -- Determine pixel size
             local pixelSize
@@ -107,12 +117,7 @@ function PreviewModule.generatePreview(params, callback)
             elseif tonumber(size) then
                 pixelSize = tonumber(size)
             else
-                callback({
-                    error = {
-                        code = "INVALID_SIZE",
-                        message = "Size must be 'small', 'medium', 'large', or a number"
-                    }
-                })
+                fail("INVALID_SIZE", "Size must be 'small', 'medium', 'large', or a number")
                 return
             end
             
@@ -128,6 +133,8 @@ function PreviewModule.generatePreview(params, callback)
                 if errorMessage then
                     logger:error("Preview generation error: " .. errorMessage)
                     previewError = errorMessage
+                elseif not jpg then
+                    previewError = "Lightroom returned no thumbnail data"
                 else
                     jpegData = jpg
                     logger:debug("Preview generated successfully, size: " .. string.len(jpg) .. " bytes")
@@ -135,38 +142,30 @@ function PreviewModule.generatePreview(params, callback)
                 previewGenerated = true
             end)
             
-            -- Wait for async operation to complete
+            -- Wait for async operation to complete (bounded: never wait forever)
+            local waited = 0
             while not previewGenerated do
                 LrTasks.sleep(0.1)
+                waited = waited + 0.1
                 if progressScope:isCanceled() then
                     logger:info("Preview generation cancelled by user")
-                    callback({
-                        error = {
-                            code = "CANCELLED",
-                            message = "Preview generation cancelled by user"
-                        }
-                    })
+                    fail("CANCELLED", "Preview generation cancelled by user")
+                    return
+                end
+                if waited > 90 then
+                    logger:error("Preview generation timed out after 90 s")
+                    fail("TIMEOUT", "Lightroom did not return a thumbnail within 90 seconds")
                     return
                 end
             end
             
             if previewError then
-                callback({
-                    error = {
-                        code = "GENERATION_FAILED",
-                        message = "Failed to generate preview: " .. previewError
-                    }
-                })
+                fail("GENERATION_FAILED", "Failed to generate preview: " .. previewError)
                 return
             end
             
             if not jpegData then
-                callback({
-                    error = {
-                        code = "NO_DATA",
-                        message = "Preview generation returned no data"
-                    }
-                })
+                fail("NO_DATA", "Preview generation returned no data")
                 return
             end
             
@@ -332,9 +331,14 @@ function PreviewModule.generateBatchPreviews(params, callback)
                         previewGenerated = true
                     end)
                     
-                    -- Wait for async operation
-                    while not previewGenerated do
+                    -- Wait for async operation (bounded: a thumbnail that never arrives must not hang the batch)
+                    local waited = 0
+                    while not previewGenerated and waited < 90 do
                         LrTasks.sleep(0.1)
+                        waited = waited + 0.1
+                    end
+                    if not previewGenerated then
+                        previewError = "Timed out waiting for thumbnail"
                     end
                     
                     if previewError or not jpegData then
