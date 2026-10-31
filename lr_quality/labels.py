@@ -51,16 +51,17 @@ def from_rubric(d: dict, weight=1.0) -> dict | None:
 
 def from_weak(d: dict, weight=WEAK_WEIGHT) -> dict | None:
     """triage final.ndjson record: Claude's visible_problems (positives are informative, absence only for covered issues)."""
-    vp = set((d.get("fields") or {}).get("visible_problems") or [])
-    if "photo_id" not in d or not (d.get("claude") or d.get("fields")):
+    cf = (d.get("claude") or {}).get("fields")  # only escalated photos carry a Claude opinion
+    if "photo_id" not in d or not cf:
         return None
+    vp = set(cf.get("visible_problems") or [])
     pos = lambda *k: 2 if vp & set(k) else 0  # noqa: E731
     t = {i: None for i in ISSUES}
     t.update(blown_highlights=pos("blown_highlights"), crushed_shadows=pos("too_dark"), underexposed=pos("too_dark"),
              soft_focus=pos("blurry"), motion_blur=pos("motion_blur"), blur=pos("blurry", "motion_blur"),
              tilted_horizon=pos("tilted_horizon"))
     return {"id": str(d["photo_id"]), "targets": t, "tilt_deg": None, "tilt_conf": 0.0, "weight": weight, "kind": None,
-            "scene": (d.get("fields") or {}).get("scene_type"), "uncertain": False, "source": "weak", "keeper": None}
+            "scene": cf.get("scene_type"), "uncertain": False, "source": "weak", "keeper": None}
 
 
 def from_verdict(d: dict, weight=1.0) -> dict | None:

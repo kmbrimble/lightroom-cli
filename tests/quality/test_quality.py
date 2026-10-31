@@ -13,6 +13,15 @@ from lr_quality import core  # noqa: E402
 
 from . import synth  # noqa: E402
 
+@pytest.fixture(autouse=True)
+def _v1_rules(monkeypatch, tmp_path):
+    """These tests pin the v1 rule engine: point the default model at a missing file so analyze() falls back to the rules.
+    (The learned path is covered in test_v2.py.)"""
+    from lr_quality import model as _m
+    monkeypatch.setattr(_m, "DEFAULT_MODEL", tmp_path / "absent.json")
+    core._CACHE.clear()
+
+
 CODES = lambda r: {f["code"] for f in r["flags"]}  # noqa: E731
 
 
@@ -161,7 +170,8 @@ def test_cv2_parity():
 
 # ---- batch + CLI ----
 def run(*args, stdin=None):
-    return subprocess.run([sys.executable, "-m", "lr_quality", *args], input=stdin, capture_output=True)
+    extra = ["--model", "none"] if args and args[0] in ("analyze", "batch") else []  # these tests pin the v1 rules
+    return subprocess.run([sys.executable, "-m", "lr_quality", *args, *extra], input=stdin, capture_output=True)
 
 
 def test_cli_analyze_stdin_roundtrip():

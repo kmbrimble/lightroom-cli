@@ -178,18 +178,21 @@ def _ori(gx, gy, y0, y1, vertical):
 
 
 def _smooth(a, kh, kw):
-    """Box mean with a kh x kw window, same size (edge-padded, cumulative sums)."""
-    p = np.pad(a, ((kh // 2, kh - kh // 2), (kw // 2, kw - kw // 2)), mode="edge").astype(np.float64)
-    c = p.cumsum(0).cumsum(1)
-    c = np.pad(c, ((1, 0), (1, 0)))
-    H, W = a.shape
-    return ((c[kh:kh + H, kw:kw + W] - c[:H, kw:kw + W] - c[kh:kh + H, :W] + c[:H, :W]) / (kh * kw)).astype(np.float32)
+    """Separable box mean, same size (edge-padded, float32 cumulative sums)."""
+    for ax, k in ((0, kh), (1, kw)):
+        pad = [(0, 0), (0, 0)]
+        pad[ax] = (k // 2, k - k // 2)
+        c = np.cumsum(np.pad(a, pad, mode="edge"), axis=ax, dtype=np.float32)
+        c = np.concatenate([np.zeros_like(np.take(c, [0], axis=ax)), c], axis=ax)
+        n = a.shape[ax]
+        a = (np.take(c, range(k, k + n), axis=ax) - np.take(c, range(0, n), axis=ax)) / k
+    return a
 
 
-def _ori_st(gx, gy, y0, y1, vertical, klen=41, kthin=5):
+def _ori_st(gx, gy, y0, y1, vertical, klen=21, kthin=3):
     """Straight-line orientation from the structure tensor over an elongated window (long coherent edges only).
     -> peak_deg, peak_share, coherent_mass_frac, n_strong. Same sign convention as _ori."""
-    gx, gy = gx[y0:y1], gy[y0:y1]
+    gx, gy = gx[y0:y1:2, ::2], gy[y0:y1:2, ::2]  # stride 2: window lengths are in these (quarter-res) pixels
     jxx, jyy, jxy = gx * gx, gy * gy, gx * gy
     kh, kw = (klen, kthin) if vertical else (kthin, klen)
     jxx, jyy, jxy = _smooth(jxx, kh, kw), _smooth(jyy, kh, kw), _smooth(jxy, kh, kw)

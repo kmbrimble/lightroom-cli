@@ -125,9 +125,11 @@ def cmd_features(a):
     """Analyse a folder of <id>.jpg previews in parallel -> NDJSON {id, result} (a cache for eval/learn)."""
     import multiprocessing as mp
     paths = list(_expand(a.paths))
-    kw = dict(model=None, accel="auto")
+    kw = dict(model=a.model or None, accel="auto")
     with mp.Pool(a.jobs) as pool, open(a.out, "w", encoding="utf-8") as fh:
         for rec in pool.imap(_one, [(p, kw) for p in paths], chunksize=8):
+            if a.flat and "result" in rec:  # {"id", ...analyze() fields}: the shape of the desktop quality.ndjson
+                rec = {"id": rec["id"], **rec["result"]}
             fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
     _out({"written": a.out, "n": len(paths)})
     return 0
@@ -287,6 +289,8 @@ def main(argv=None):
     s.add_argument("paths", nargs="+")
     s.add_argument("--out", required=True)
     s.add_argument("--jobs", type=int, default=8)
+    s.add_argument("--model", metavar="model.json|default", help="also run the learned assessment (default: features only, no model)")
+    s.add_argument("--flat", action="store_true", help="one flat object per photo ({id, ...result}) instead of {id, result}")
     s.set_defaults(fn=cmd_features)
     try:
         a = ap.parse_args(argv)

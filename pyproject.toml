@@ -59,7 +59,7 @@ packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli
 
 [tool.setuptools.package-data]
 lightroom_sdk = ["plugin/*.lua"]
-lr_quality = ["thresholds.json"]
+lr_quality = ["thresholds.json", "model.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
