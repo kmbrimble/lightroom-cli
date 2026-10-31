@@ -82,6 +82,7 @@ class Scheduler:
             except (TypeError, ValueError):
                 reply = err("BAD_REQUEST", "timeout/wait_bridge must be numbers")
                 return reply
+            up_by = t0 + wait_bridge
             if not await self.bridge.wait_up(wait_bridge):
                 reply = err("BRIDGE_DOWN", self.bridge.reason)
                 return reply
@@ -93,7 +94,7 @@ class Scheduler:
                         self.queued -= 1
                         waiting = False
                         q_ms = int((time.monotonic() - t0) * 1000)
-                        reply = await self._exec(command, params, timeout, creq, q_ms, exclusive=False)
+                        reply = await self._exec(command, params, timeout, creq, q_ms, exclusive=False, up_by=up_by)
                 else:
                     async with self.m_lock:
                         slots = 0
@@ -112,7 +113,7 @@ class Scheduler:
                                     v.hint, v.details = guard.HINT_VC, details
                                     reply = {"ok": False, "error": v.error()}
                                     return reply
-                            reply = await self._exec(command, params, timeout, creq, q_ms, exclusive=True)
+                            reply = await self._exec(command, params, timeout, creq, q_ms, exclusive=True, up_by=up_by)
                         finally:
                             for _ in range(slots):
                                 self.r_sem.release()
@@ -141,9 +142,19 @@ class Scheduler:
 
         return await guard.resolve_and_check(params, lookup)
 
-    async def _exec(self, command, params, timeout, creq, q_ms, exclusive):
+    async def _submit(self, command, params, up_by):
+        """submit(); if the link dropped between wait_up and now nothing was sent, so waiting and retrying is safe."""
+        while True:
+            try:
+                return await self.bridge.submit(command, params)
+            except BridgeDown:
+                left = up_by - time.monotonic()
+                if left <= 0 or not await self.bridge.wait_up(left):
+                    raise
+
+    async def _exec(self, command, params, timeout, creq, q_ms, exclusive, up_by):
         t1 = time.monotonic()
-        rid, fut = await self.bridge.submit(command, params)
+        rid, fut = await self._submit(command, params, up_by)
         if creq:
             self.active[creq] = rid
         self.inflight += 1

@@ -1,17 +1,23 @@
 """lrc: thin stdlib-only client for the lrd daemon. Run as a FILE, never via -m / console_script:
 
-    python -S -E lightroom_sdk/lrc.py call catalog.getSelectedPhotos
-    python -S -E lightroom_sdk/lrc.py call develop.setValue '{"parameter":"Exposure","value":0.5}' --timeout 20
-    python -S -E lightroom_sdk/lrc.py health | stop | ping | commands | batch FILE|-
+    python -I -S lightroom_sdk/lrc.py call catalog.getSelectedPhotos
+    python -I -S lightroom_sdk/lrc.py call develop.setValue '{"parameter":"Exposure","value":0.5}' --timeout 20
+    python -I -S lightroom_sdk/lrc.py health | stop | ping | commands | batch FILE|-
 
 Exit codes: 0 ok, 1 Lightroom/other error, 2 guard denied, 3 bridge/daemon down, 4 timeout.
 Imports only sys/os/json/socket (subprocess lazily, Windows self-heal only). Do NOT import lightroom_sdk here.
 """
-import json
-import os
-import socket
 import sys
-import time
+
+# Running this file puts its directory first on sys.path, where lightroom_sdk/types/ would shadow the
+# stdlib `types` module (import json -> re -> enum -> types fails). Drop it before any other import.
+_here = __import__("os").path.dirname(__import__("os").path.abspath(__file__))
+sys.path[:] = [p for p in sys.path if p and __import__("os").path.abspath(p) != _here]
+
+import json  # noqa: E402
+import os  # noqa: E402
+import socket  # noqa: E402
+import time  # noqa: E402
 
 TASK = "LightroomCliDaemon"
 EXIT = {"GUARD_DENIED": 2, "BRIDGE_DOWN": 3, "BRIDGE_LOST": 3, "BRIDGE_BUSY": 3, "DAEMON_DOWN": 3, "LR_TIMEOUT": 4}
