@@ -10,6 +10,9 @@
 -- optFlattenAutoNow is deliberately NOT passed (it would re-resolve Auto values).
 
 local LrTasks = import 'LrTasks'
+-- Lightroom metadata/develop calls can yield; a plain pcall cannot yield across them
+-- ("Yielding is not allowed within a C or metamethod call"), so use the yieldable one.
+local pcall = LrTasks.pcall
 local WriteGate = require 'WriteGate'
 
 local AutoToneModule = {}

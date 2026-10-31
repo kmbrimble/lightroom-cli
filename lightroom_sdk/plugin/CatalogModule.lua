@@ -1471,7 +1471,16 @@ function CatalogModule.createVirtualCopy(params, callback)
             callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "Photo not found: " .. tostring(params.photoId)))
             return
         end
+        -- The photo must be in the visible source, or selecting it silently fails (and the SDK then
+        -- errors with "attempt to index a boolean value"). Show All Photographs first.
+        ErrorUtils.safeCall(function() catalog:setActiveSources({ catalog }) end)
+        import('LrTasks').sleep(0.3)
         catalog:setSelectedPhotos(target, { target })
+        local sel = catalog:getTargetPhotos()
+        if #sel ~= 1 or sel[1].localIdentifier ~= target.localIdentifier then
+            callback(ErrorUtils.createError("SELECTION_FAILED", "Could not select photo " .. tostring(params.photoId) .. " (hidden in a collapsed stack or filtered out?)"))
+            return
+        end
     elseif not catalog:getTargetPhoto() then
         callback(ErrorUtils.createError("PHOTO_NOT_FOUND", "No photo selected"))
         return
