@@ -1,0 +1,18 @@
+{
+  "_note": "CONSERVATIVE heuristics, not photographic authority. Override per call (deep-merged).",
+  "clip": {"high_level": 250, "low_level": 5, "high_warn": 1.5, "high_bad": 5.0, "low_warn": 5.0, "low_bad": 15.0},
+  "luma": {"under_warn": 0.19, "under_bad": 0.12, "over_warn": 0.75, "over_bad": 0.85},
+  "focus": {"tiles": 8, "rel_warn": 0.28, "rel_bad": 0.15, "min_batch": 5, "abs_warn": 8.0, "abs_bad": 3.0,
+            "sharp_tile_var": 40.0, "conflict_ratio": 0.2},
+  "noise": {"warn": 5.0, "bad": 9.0},
+  "tilt": {"min_deg": 0.4, "max_deg": 4.0, "min_lines": 2, "min_votes_frac": 0.3, "agree_deg": 1.0},
+  "second_opinion": {
+    "margin": 0.25, "min_long_edge": 256, "uniform_range": 8,
+    "scene_unreliable": {
+      "sunset": ["blown_highlights", "overexposed", "crushed_shadows"],
+      "snow": ["overexposed", "blown_highlights", "underexposed"],
+      "night": ["underexposed", "crushed_shadows", "noisy"],
+      "interior": ["crushed_shadows"]
+    }
+  }
+}

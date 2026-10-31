@@ -13,6 +13,7 @@ All notable changes to this project will be documented in this file.
 - `scripts/catalog_cleanup.py`: one-off resumable catalog clean-up runner (remove `-HDR-2.dng` duplicates, remove bracket source ARWs of merged sets, clear Auto Tone) with preflight assertions, NDJSON audit log and no disk-delete code path; see `docs/catalog-cleanup.md`
 
 - `develop.clearAutoTone` (class DR, `AutoToneModule.lua`): removes Auto Tone (8 tone sliders -> 0, Auto* flags -> false) from any photo incl. originals, `{photoIds (max 50), dryRun}`; the single named exemption to the virtual-copy rule (`Guard.DR_COMMANDS`), daemon class `DR`. Key evidence: `/projects/.lr-scratch/autotone/keys.md`
+- `lr_quality/` + `lr-quality` CLI: offline exposure / histogram / focus / tilt / noise metrics for a JPEG (extras `quality`, `quality-fast`), with batch-relative scoring, `needs_second_opinion` and `learn-targets`; separate package, no Lightroom dependency; see `docs/quality.md`
 
 ### Fixed
 - Windows paths in plugin replies produced invalid JSON (unescaped backslashes), so the client dropped them and the call timed out after 30 s — the Lua JSON string encoder now escapes `\`, `"` and control characters
