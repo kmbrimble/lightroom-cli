@@ -27,6 +27,7 @@ def main(argv=None):
     a.add_argument("--max-usd", type=float, default=8.0)
     a.add_argument("--dry-run-escalation", action="store_true")
     a.add_argument("--limit", type=int, default=0, help="escalate at most N photos this run (testing)")
+    a.add_argument("--force", type=int, default=0, help="test: also escalate the N lowest-min_conf records (reason forced_test)")
     a.add_argument("--api-url", default=None)
     o = a.parse_args(argv)
     os.makedirs(o.previews, exist_ok=True)
@@ -45,10 +46,17 @@ def main(argv=None):
     esc = Escalator(key, o.max_usd, o.dry_run_escalation, spent, **({"url": o.api_url} if o.api_url else {}))
     print("escalation:", "DRY RUN" if esc.dry else f"live, max ${o.max_usd}, already spent ${spent:.4f}", flush=True)
     sent = 0
-    for line in open(o.triage, encoding="utf-8"):
+    lines = [l for l in open(o.triage, encoding="utf-8") if l.strip()]
+    forced = set()
+    if o.force:
+        low = sorted((json.loads(l) for l in lines), key=lambda r: r["min_conf"] if r["min_conf"] is not None else -1)
+        forced = {r["photo_id"] for r in low[:o.force]}
+    for line in lines:
         rec = json.loads(line)
+        if rec["photo_id"] in forced and not rec["escalate"]:
+            rec["escalate"], rec["reasons"] = True, ["forced_test"]
         pid = rec["photo_id"]
-        if pid in done or not line.strip():
+        if pid in done:
             continue
         if rec.get("quality_missing") and pid in quality:  # quality arrived after the local pass: re-decide
             rec["reasons"] = escalation_reasons(rec["local"], quality[pid])
@@ -62,14 +70,15 @@ def main(argv=None):
                 continue
             sent += 1
         out = esc.run(rec, img)
+        if out.get("escalation", "").startswith("error"):  # transient: not written, so a rerun retries it
+            print(f"{pid}: {out['escalation'][:160]}", file=sys.stderr, flush=True)
+            continue
         with open(o.out, "a", encoding="utf-8") as fh:
             fh.write(json.dumps(out, ensure_ascii=False) + "\n")
         if out.get("claude"):
             u = out["claude"]["usage"]
             print(f"{pid} {rec['fields']['scene_type']}->{out['fields']['scene_type']} in={u.get('input_tokens')} "
                   f"out={u.get('output_tokens')} ${out['claude']['cost_usd']:.4f} total ${esc.spent:.4f}", flush=True)
-        elif out.get("escalation", "").startswith("error"):
-            print(f"{pid}: {out['escalation']}", file=sys.stderr, flush=True)
     rs = [json.loads(l) for l in open(o.out, encoding="utf-8")] if os.path.exists(o.out) else []
     cl = [r for r in rs if r.get("claude")]
     print(f"final: {len(rs)} records, {len(cl)} from Claude, spent ${esc.spent:.4f}"

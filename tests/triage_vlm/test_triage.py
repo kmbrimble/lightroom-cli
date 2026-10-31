@@ -184,3 +184,22 @@ def test_malformed_keywords_rejected(img):
             local_classify(str(img("p1")), s.url, retries=1)
     finally:
         s.close()
+
+
+def test_claude_schema_has_no_unsupported_keywords_and_errors_not_persisted(img, tmp_path, monkeypatch):
+    from lr_triage.schema import strict_schema
+    assert not ({"minimum", "maxLength", "minItems", "maxItems"} & set(json.dumps(strict_schema()).replace('"', " ").split()))
+    class H(BaseHTTPRequestHandler):
+        def log_message(self, *a): pass
+        def do_POST(self):
+            self.rfile.read(int(self.headers["Content-Length"])); self.send_response(400); self.end_headers(); self.wfile.write(b'{"error":"bad sk-k"}')
+    s = Server(H)
+    loc = {"fields": FIELDS, "conf": {"scene_type": 0.1, "has_people": 1, "visible_problems": 1}, "min_conf": 0.1}
+    img("p1"); (tmp_path / "t.ndjson").write_text(json.dumps(decide("p1", loc, {})) + "\n")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-k")
+    try:
+        triage_escalate.main(["--triage", str(tmp_path / "t.ndjson"), "--previews", str(img.dir), "--out", str(tmp_path / "f.ndjson"),
+                              "--api-url", s.url + "/v1/messages"])
+    finally:
+        s.close()
+    assert not (tmp_path / "f.ndjson").exists() or (tmp_path / "f.ndjson").read_text() == ""

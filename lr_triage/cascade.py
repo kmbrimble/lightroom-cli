@@ -2,7 +2,7 @@
 import base64, io, json, os, urllib.error
 
 from .classify import _post, parse_json
-from .schema import LOW_CONF_FIELDS, PROMPT, SCHEMA
+from .schema import LOW_CONF_FIELDS, PROMPT, strict_schema
 
 MODEL = "claude-sonnet-5-5"
 API_URL = "https://api.anthropic.com/v1/messages"
@@ -73,7 +73,7 @@ def cost_usd(usage):
 def claude_classify(image_path, api_key, url=API_URL, model=MODEL):
     """Forced tool_choice is a 400 on Sonnet 5.5, so: tool_choice auto + strict tool + instruction; text-JSON fallback."""
     tool = {"name": "record_triage", "description": "Record the triage labels for this photo.",
-            "input_schema": SCHEMA, "strict": True}
+            "input_schema": strict_schema(), "strict": True}
     body = {"model": model, "max_tokens": 500, "thinking": {"type": "between_tools"},
             "tools": [tool], "tool_choice": {"type": "auto"},
             "messages": [{"role": "user", "content": [

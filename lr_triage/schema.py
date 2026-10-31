@@ -42,3 +42,14 @@ PROMPT = (
     "\"keywords\": [\"lake\", \"reflection\", \"pine\", \"calm\", \"mountain\"], \"short_caption\": \"A calm lake at dawn.\"}\n"
     "Reply with a single JSON object with exactly these keys in this order: " + ", ".join(SCHEMA["required"]) + "."
 )
+
+
+def strict_schema():
+    """Claude strict tool schemas reject minimum/maxLength/minItems>1 etc. (400 seen live); the same limits are enforced
+    by the prompt and by classify.validate-style checks instead."""
+    import copy
+    sc = copy.deepcopy(SCHEMA)
+    for p in sc["properties"].values():
+        for k in ("minimum", "maximum", "maxLength", "minLength", "maxItems", "minItems"):
+            p.pop(k, None)
+    return sc
