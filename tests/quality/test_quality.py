@@ -18,8 +18,10 @@ CODES = lambda r: {f["code"] for f in r["flags"]}  # noqa: E731
 
 def test_schema_keys_present():
     r = lr_quality.analyze(synth.textured())
-    assert r["schema"] == "lr_quality/1"
-    assert set(r) == {"schema", "source", "scene_hint", "image", "exposure", "focus", "tilt", "noise", "flags", "needs_second_opinion"}
+    assert r["schema"] == "lr_quality/2"
+    base = {"schema", "source", "scene_hint", "image", "exposure", "focus", "tilt", "noise", "flags", "needs_second_opinion", "features"}
+    assert base <= set(r) <= base | {"assessment", "flags_v1", "needs_second_opinion_v1"}
+    assert set(lr_quality.analyze(synth.textured(), model=None)) == base
     assert set(r["image"]) == {"width", "height", "analysed_long_edge", "format"}
     keys = {"mean_luma", "p01", "p05", "p25", "p50", "p75", "p95", "p99", "clip_high_pct", "clip_low_pct",
             "clip_high_pct_by_channel", "upper_third_clip_high_pct", "midtone_mass", "histogram_luma",
@@ -167,7 +169,7 @@ def test_cli_analyze_stdin_roundtrip():
     assert p.returncode == 0, p.stderr
     assert p.stdout.count(b"\n") == 1
     r = json.loads(p.stdout)
-    assert r["schema"] == "lr_quality/1" and r["image"]["format"] == "JPEG" and r["scene_hint"] == "landscape"
+    assert r["schema"] == "lr_quality/2" and r["image"]["format"] == "JPEG" and r["scene_hint"] == "landscape"
     assert r["focus"]["relative_to_batch"] is None and r["source"] is None
 
 

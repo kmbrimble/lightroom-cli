@@ -30,8 +30,24 @@ def join(recs, cache):
     return keep, [M.derive(cache[r["id"]]["features"]) for r in keep], [cache[r["id"]] for r in keep]
 
 
+def synthetic_tilt(path, base_ids):
+    """Rotated variants as extra training rows for the tilt models only (never evaluated, split follows the base photo)."""
+    recs, F, res = [], [], []
+    for line in Path(path).read_text("utf-8").splitlines():
+        d = json.loads(line)
+        if "result" not in d or d["base"] not in base_ids:
+            continue
+        t = {i: None for i in L.ISSUES}
+        t["tilted_horizon"] = L.tilt_severity(d["rot"])
+        recs.append({"id": d["id"], "base": d["base"], "targets": t, "tilt_deg": d["rot"], "tilt_conf": 1.0, "weight": 0.15,
+                     "kind": None, "scene": None, "uncertain": False, "source": "synthetic", "keeper": None})
+        F.append(M.derive(d["result"]["features"]))
+        res.append(d["result"])
+    return recs, F, res
+
+
 def split(recs):
-    ho = np.array([L.is_heldout(r["id"]) for r in recs])
+    ho = np.array([L.is_heldout(r.get("base", r["id"])) for r in recs])
     return ~ho, ho
 
 
@@ -46,7 +62,7 @@ def fit_all(F, recs, seed=7):
             issues[code], oof[code], used[code] = im, p, u
     model = {"schema": M.MODEL_SCHEMA, "issues": issues, "tilt": tm, "second_opinion": {"width": 0.15, "max_rate": MAX_SECOND_OPINION},
              "n_reviews": len(recs), "n_weak": sum(r["source"] == "weak" for r in recs)}
-    real = np.array([r["source"] != "weak" for r in recs])
+    real = np.array([r["source"] not in ("weak", "synthetic") for r in recs])
     model["second_opinion"]["width"] = pick_width(model, oof, used, real)
     return model, oof, used
 
@@ -56,12 +72,12 @@ def _ambiguous(model, P, width):
     amb = np.zeros(len(next(iter(P.values()))), bool)
     for code, p in P.items():
         t = model["issues"][code]["threshold"]
-        amb |= np.nan_to_num(np.abs(p - t) <= width, nan=False)
+        amb |= np.nan_to_num(M.logit_dist(p, t) <= width, nan=False)
     return amb
 
 
 def pick_width(model, oof, used, real):
-    lo, hi = 0.0, 0.5
+    lo, hi = 0.0, 8.0
     for _ in range(25):
         mid = (lo + hi) / 2
         rate = _ambiguous(model, oof, mid)[real].mean() if real.any() else 0
@@ -85,12 +101,25 @@ def _group(recs, key):
 
 def evaluate(model, F, recs, results=None, groups=("kind", "scene")):
     """Metrics of `model` on (F, recs) (non-weak rows only). results = analyze() outputs, for the v1-flag baseline."""
-    keep = [i for i, r in enumerate(recs) if r["source"] != "weak"]
+    syn = [i for i, r in enumerate(recs) if r["source"] == "synthetic"]
+    synth = None
+    if syn:  # known-angle rotations of level photos: tilt accuracy and detection of |rot| >= 1 deg
+        Fs = [F[i] for i in syn]
+        M.add_tilt_hat(Fs, model["tilt"])
+        hat = np.array([M.predict_tilt(model["tilt"], f) for f in Fs])
+        tru = np.array([recs[i]["tilt_deg"] for i in syn])
+        pr = np.array([M.predict_issue(model["issues"]["tilted_horizon"], f)[0] for f in Fs]) if "tilted_horizon" in model["issues"] else None
+        synth = {"n": len(syn), "mae_model": float(np.abs(hat - tru).mean()),
+                 "mae_v1_hough": float(np.abs(np.array([f["hough_angle"] if f["hough_valid"] else 0.0 for f in Fs]) * -1 - tru).mean()),
+                 "mae_zero": float(np.abs(tru).mean()), "within_1deg": float((np.abs(hat - tru) <= 1.0).mean()),
+                 "detect_recall": None if pr is None else float((pr >= model["issues"]["tilted_horizon"]["threshold"])[np.abs(tru) >= 1.0].mean())}
+    keep = [i for i, r in enumerate(recs) if r["source"] not in ("weak", "synthetic")]
     recs = [recs[i] for i in keep]
     F = [F[i] for i in keep]
     results = [results[i] for i in keep] if results else None
     P, S = predict_matrix(model, F)
-    out = {"n": len(recs), "issues": {}, "groups": {}}
+    sw = np.array([r.get("sw", 1.0) for r in recs])
+    out = {"n": len(recs), "issues": {}, "groups": {}, "tilt_synthetic": synth}
     for code, im in model["issues"].items():
         t = im["threshold"]
         row = {"threshold": t}
@@ -100,10 +129,10 @@ def evaluate(model, F, recs, results=None, groups=("kind", "scene")):
             if u.sum() == 0 or y[u].sum() == 0:
                 continue
             pred = (P[code] >= t)[u] if k == 2 else (S[code] >= k)[u]
-            cell = {"auc": M.auc(P[code][u], y[u]), **M.prf(pred, y[u])}
+            cell = {"auc": M.auc(P[code][u], y[u]), **M.prf(pred, y[u], sw[u])}
             if results is not None and code in V1_CODE:
                 v1 = np.array([any(f["code"] == V1_CODE[code] for f in r["flags"]) for r in results])
-                cell["v1"] = M.prf(v1[u], y[u])
+                cell["v1"] = M.prf(v1[u], y[u], sw[u])
             row[f"ge{k}"] = cell
         out["issues"][code] = row
         y2 = M._label_vec(recs, code, 2)
@@ -112,7 +141,7 @@ def evaluate(model, F, recs, results=None, groups=("kind", "scene")):
             for v in sorted(set(gv)):
                 m = np.array([x == v for x in gv]) & (y2 >= 0)
                 if m.sum() >= 8:
-                    out["groups"].setdefault(g, {}).setdefault(code, {})[v] = M.prf((P[code] >= t)[m], y2[m] == 1)
+                    out["groups"].setdefault(g, {}).setdefault(code, {})[v] = M.prf((P[code] >= t)[m], y2[m] == 1, sw[m])
     # second opinion
     amb = _ambiguous(model, P, model["second_opinion"]["width"])
     err = np.zeros(len(recs), bool)
@@ -132,6 +161,12 @@ def evaluate(model, F, recs, results=None, groups=("kind", "scene")):
         out["tilt"] = {"n": len(tl), "mae_model": float(np.abs(hat - tru).mean()), "mae_v1_hough": float(np.abs(hv1 - tru).mean()),
                        "mae_zero": float(np.abs(tru).mean()), "mae_model_abs": float(np.abs(np.abs(hat) - np.abs(tru)).mean()),
                        "sign_agree": float((np.sign(hat) == np.sign(tru)).mean())}
+        if "tilted_horizon" in model["issues"]:  # false-alarm rate: flag rate on photos the reviewer saw as level
+            lvl = [i for i, r in enumerate(recs) if r["tilt_deg"] is not None and abs(r["tilt_deg"]) < 1.0]
+            thr = model["issues"]["tilted_horizon"]["threshold"]
+            out["tilt"]["flag_rate_on_level"] = float(np.mean([M.predict_issue(model["issues"]["tilted_horizon"], F[i])[0] >= thr for i in lvl]))
+            allr = [M.predict_issue(model["issues"]["tilted_horizon"], f)[0] >= thr for f in F]
+            out["tilt"]["flag_rate_all"] = float(np.mean(allr))
     return out
 
 
@@ -158,7 +193,10 @@ def fmt_table(ev, title=""):
               f"of which flagged {so['errors_in_flagged'] if so['errors_in_flagged'] is None else format(so['errors_in_flagged'], '.0%')}")
     if "tilt" in ev:
         t = ev["tilt"]
-        L_.append(f"tilt (n={t['n']}): MAE model {t['mae_model']:.2f} deg, v1 hough {t['mae_v1_hough']:.2f}, predict-zero {t['mae_zero']:.2f}; sign agreement {t['sign_agree']:.0%}")
+        L_.append(f"tilt (n={t['n']}): MAE model {t['mae_model']:.2f} deg, v1 hough {t['mae_v1_hough']:.2f}, predict-zero {t['mae_zero']:.2f}; sign agreement {t['sign_agree']:.0%}; flag rate on level photos {t.get('flag_rate_on_level')}, on all {t.get('flag_rate_all')}")
+    if ev.get("tilt_synthetic"):
+        t = ev["tilt_synthetic"]
+        L_.append(f"tilt on synthetic rotations (n={t['n']}): MAE model {t['mae_model']:.2f}, v1 hough {t['mae_v1_hough']:.2f}, zero {t['mae_zero']:.2f}; within 1 deg {t['within_1deg']:.0%}; flag recall {t['detect_recall']}")
     return "\n".join(L_)
 
 
@@ -180,7 +218,7 @@ def cv_report(model, oof, recs):
     out = {}
     for code, p in oof.items():
         y = M._label_vec(recs, code, 2)
-        real = np.array([r["source"] != "weak" for r in recs])
+        real = np.array([r["source"] not in ("weak", "synthetic") for r in recs])
         u = (y >= 0) & real & ~np.isnan(p)
         if u.sum() and y[u].sum():
             out[code] = {"auc": M.auc(p[u], y[u]), **M.prf(p[u] >= model["issues"][code]["threshold"], y[u]),
@@ -194,12 +232,37 @@ def fmt_cv(cv):
                      for c, r in cv.items())
 
 
-def apply_meta(recs, meta_path):
+STRATA = {"dark": {"underexposed", "crushed_shadows"}, "soft": {"soft_focus"}, "blown": {"blown_highlights", "overexposed"},
+          "tilted": {"tilted_horizon"}}  # priority order used by the label sampler (checked against its review_set)
+
+
+def _stratum(codes):
+    return next((k for k, v in STRATA.items() if codes & v), "noflag")
+
+
+def apply_meta(recs, meta_path, population=None):
+    """Attach kind/scene/stratum from review_set.json; with the v1 batch output (`population`) also sampling weights `sw`
+    (stratum size / stratum sample size, mean-normalised) so precision/recall estimate the whole catalogue, not the stratified sample."""
     if not meta_path:
         return
     meta = {str(p["id"]): p for p in json.loads(Path(meta_path).read_text("utf-8")).get("photos", [])}
+    pop = {}
+    if population:
+        for line in Path(population).read_text("utf-8").splitlines():
+            if line.strip():
+                d = json.loads(line)
+                k = _stratum({f["code"] for f in d.get("flags", [])})
+                pop[k] = pop.get(k, 0) + 1
+    ns = {}
     for r in recs:
         m = meta.get(r["id"])
         if m:
             r["kind"] = r["kind"] or m.get("kind")
             r["scene"] = r["scene"] or m.get("scene_type")
+            r["stratum"] = m.get("stratum")
+            ns[r["stratum"]] = ns.get(r["stratum"], 0) + 1
+    if pop:
+        raw = {r["id"]: pop.get(r.get("stratum"), 0) / ns[r["stratum"]] for r in recs if r.get("stratum") in ns and pop.get(r["stratum"])}
+        mean = sum(raw.values()) / len(raw) if raw else 1
+        for r in recs:
+            r["sw"] = raw.get(r["id"], mean) / mean

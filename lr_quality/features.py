@@ -133,7 +133,7 @@ def _focus(g, lap, gx, gy, q):
         # relative to the image's own best tile: how many tiles are nearly as sharp as the sharpest
         "foc_near_best_frac": float((tv >= 0.25 * max(best, 1e-6)).mean()),
         "foc_global": float(lap.var()),
-    }, tv, valid
+    }, tv, valid, gx2, gy2
 
 
 def _noise(imm, tv, valid, g):
@@ -177,6 +177,39 @@ def _ori(gx, gy, y0, y1, vertical):
     return peak, float(mag[w].sum() / nm), nm / tot, float(mag[np.abs(th) <= 0.3].sum() / nm)
 
 
+def _smooth(a, kh, kw):
+    """Box mean with a kh x kw window, same size (edge-padded, cumulative sums)."""
+    p = np.pad(a, ((kh // 2, kh - kh // 2), (kw // 2, kw - kw // 2)), mode="edge").astype(np.float64)
+    c = p.cumsum(0).cumsum(1)
+    c = np.pad(c, ((1, 0), (1, 0)))
+    H, W = a.shape
+    return ((c[kh:kh + H, kw:kw + W] - c[:H, kw:kw + W] - c[kh:kh + H, :W] + c[:H, :W]) / (kh * kw)).astype(np.float32)
+
+
+def _ori_st(gx, gy, y0, y1, vertical, klen=41, kthin=5):
+    """Straight-line orientation from the structure tensor over an elongated window (long coherent edges only).
+    -> peak_deg, peak_share, coherent_mass_frac, n_strong. Same sign convention as _ori."""
+    gx, gy = gx[y0:y1], gy[y0:y1]
+    jxx, jyy, jxy = gx * gx, gy * gy, gx * gy
+    kh, kw = (klen, kthin) if vertical else (kthin, klen)
+    jxx, jyy, jxy = _smooth(jxx, kh, kw), _smooth(jyy, kh, kw), _smooth(jxy, kh, kw)
+    tr = jxx + jyy
+    coh = np.sqrt((jxx - jyy) ** 2 + 4 * jxy ** 2) / (tr + 1e-6)
+    phi = 0.5 * np.degrees(np.arctan2(2 * jxy, jxx - jyy))  # dominant gradient direction vs x axis, [-90, 90]
+    th = phi if vertical else np.where(phi >= 0, phi - 90.0, phi + 90.0)
+    ok = (coh > 0.8) & (tr > 6400) & (np.abs(th) <= 10)  # tr: mean |grad|^2 over window ~ (80)^2
+    tot = float(tr[tr > 6400].sum()) + 1e-9
+    if not ok.any():
+        return 0.0, 0.0, 0.0, 0.0
+    t, w = th[ok], (tr * coh * coh)[ok]
+    bins = np.arange(-10, 10.001, 0.25)
+    h, _ = np.histogram(t, bins=bins, weights=w)
+    sm = np.convolve(h, np.ones(5) / 5, mode="same")
+    pk = float((bins[:-1] + 0.125)[int(sm.argmax())])
+    m = np.abs(t - pk) <= 0.75
+    return float((t[m] * w[m]).sum() / w[m].sum()), float(w[m].sum() / w.sum()), float(tr[ok].sum() / tot), float(ok.sum())
+
+
 def _sky(rgb, tv_flat_frac):
     H = rgb.shape[0]
     top = rgb[: H // 3: 4, ::4].reshape(-1, 3).astype(np.float32).mean(0)
@@ -191,7 +224,7 @@ def extract(rgb, q, g, lap, imm, hough, th):
     f.update(_shadows(q, c["low_level"]))
     f.update({"exp_" + k: v for k, v in _exposure(q).items()})
     gx, gy = _sobel(g)
-    fo, tv, valid = _focus(g, lap, gx, gy, q)
+    fo, tv, valid, gx2, gy2 = _focus(g, lap, gx, gy, q)
     f.update(fo)
     f.update(_noise(imm, tv, valid, g))
     H = gx.shape[0]
@@ -199,6 +232,11 @@ def extract(rgb, q, g, lap, imm, hough, th):
     f.update({"ori_h_peak": pk, "ori_h_share": sh, "ori_h_massfrac": mf, "ori_h_level": lv})
     pk, sh, mf, lv = _ori(gx, gy, 0, H, True)
     f.update({"ori_v_peak": pk, "ori_v_share": sh, "ori_v_massfrac": mf, "ori_v_level": lv})
+    H2 = gx2.shape[0]
+    pk, sh, mf, n = _ori_st(gx2, gy2, int(0.10 * H2), int(0.75 * H2), False)
+    f.update({"st_h_peak": pk, "st_h_share": sh, "st_h_mass": mf, "st_h_n": n})
+    pk, sh, mf, n = _ori_st(gx2, gy2, 0, H2, True)
+    f.update({"st_v_peak": pk, "st_v_share": sh, "st_v_mass": mf, "st_v_n": n})
     f["hough_angle"] = hough["angle_deg"] if hough else 0.0
     f["hough_conf"] = hough["confidence"] if hough else 0.0
     f["hough_lines"] = float(hough["lines_used"]) if hough else 0.0

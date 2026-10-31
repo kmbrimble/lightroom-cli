@@ -32,7 +32,8 @@ def _expand(paths):
 
 def _kw(a):
     return dict(scene_hint=a.scene_hint, thresholds=_json_file(a.thresholds), targets=_json_file(a.targets),
-                long_edge=a.long_edge, accel="numpy" if a.no_cv2 else "auto")
+                long_edge=a.long_edge, accel="numpy" if a.no_cv2 else "auto",
+                model=None if a.model == "none" else (a.model or "default"))
 
 
 def _err(src, e):
@@ -132,6 +133,34 @@ def cmd_features(a):
     return 0
 
 
+def _rot(args):
+    from PIL import Image
+    pid, path, ang = args
+    try:
+        im = Image.open(path).convert("RGB")
+        w, h = im.size
+        im = im.rotate(ang, resample=Image.BICUBIC)  # PIL: positive = counter-clockwise, so the label (cw to level) is +ang
+        c = (round(w * 0.075), round(h * 0.075), round(w * 0.925), round(h * 0.925))  # drop the empty corners
+        r = core.analyze(im.crop(c), model=None)
+        return {"id": f"{pid}~r{ang:+.1f}", "base": pid, "rot": ang, "result": r}
+    except Exception as e:
+        return {"id": f"{pid}~r{ang:+.1f}", "error": str(e)}
+
+
+def cmd_augment_tilt(a):
+    """Synthetic tilt data: rotate photos reviewed as level (confident, |tilt|<=0.5 deg) by known angles -> feature cache."""
+    import multiprocessing as mp
+    from . import labels as L
+    recs = [r for r in L.load(a.reviews) if r["tilt_deg"] is not None and abs(r["tilt_deg"]) <= 0.5 and r["tilt_conf"] >= L.TILT_CONF_MIN]
+    angs = [float(x) for x in a.angles.split(",")]
+    jobs = [(r["id"], str(Path(a.previews) / f"{r['id']}.jpg"), g) for r in recs for g in angs]
+    with mp.Pool(a.jobs) as pool, open(a.out, "w", encoding="utf-8") as fh:
+        for rec in pool.imap(_rot, jobs, chunksize=4):
+            fh.write(json.dumps(rec, separators=(",", ":")) + "\n")
+    _out({"written": a.out, "photos": len(recs), "variants": len(jobs)})
+    return 0
+
+
 def _dataset(a):
     from . import labels as L, learn as Ln
     revs = list(a.reviews)
@@ -141,9 +170,12 @@ def _dataset(a):
                 txt = Path(add).read_text("utf-8")
                 fh.write(txt if txt.endswith("\n") else txt + "\n")
     recs = L.load(revs, weak=a.weak or ())
-    Ln.apply_meta(recs, a.meta)
+    Ln.apply_meta(recs, a.meta, a.population)
     cache = Ln.load_cache(a.features)
     kept, F, res = Ln.join(recs, cache)
+    if getattr(a, "aug", None):
+        ar, af, ares = Ln.synthetic_tilt(a.aug, {r["id"] for r in kept})
+        kept, F, res = kept + ar, F + af, res + ares
     print(f"reviews {len(recs)} ({sum(r['source'] == 'weak' for r in recs)} weak); with features {len(kept)}", file=sys.stderr)
     return kept, F, res
 
@@ -203,6 +235,7 @@ def _common(sp, targets=True):
     sp.add_argument("--thresholds", metavar="FILE.json")
     sp.add_argument("--targets", metavar="targets.json")
     sp.add_argument("--long-edge", type=int, default=1600)
+    sp.add_argument("--model", metavar="model.json|none", help="learned model (default: shipped); 'none' = v1 rule flags only")
     sp.add_argument("--no-cv2", action="store_true", help="force the pure numpy path")
 
 
@@ -232,6 +265,8 @@ def main(argv=None):
         s.add_argument("--weak", action="append", metavar="final.ndjson", help="triage visible_problems as low-weight labels")
         s.add_argument("--features", required=True, metavar="feats.ndjson", help="cache from `lr-quality features`")
         s.add_argument("--meta", metavar="review_set.json")
+        s.add_argument("--population", metavar="quality.ndjson", help="v1 batch output of ALL photos: reweight the stratified sample")
+        s.add_argument("--aug", metavar="rot.ndjson", help="synthetic tilt cache from `augment-tilt` (training only)")
         s.add_argument("--seed", type=int, default=7)
         if name == "eval":
             s.add_argument("--model")
@@ -241,6 +276,13 @@ def main(argv=None):
             s.add_argument("--add-review", action="append", metavar="new.ndjson", help="append to the first --reviews file, retrain")
             s.add_argument("--force", action="store_true")
         s.set_defaults(fn=fn)
+    s = sub.add_parser("augment-tilt", help="rotate level-reviewed photos by known angles -> synthetic tilt training cache")
+    s.add_argument("--reviews", action="append", required=True)
+    s.add_argument("--previews", required=True)
+    s.add_argument("--out", required=True)
+    s.add_argument("--angles", default="-3.5,-2,-1.2,1.2,2,3.5")
+    s.add_argument("--jobs", type=int, default=8)
+    s.set_defaults(fn=cmd_augment_tilt)
     s = sub.add_parser("features", help="analyse a folder of <id>.jpg previews in parallel -> feature cache NDJSON")
     s.add_argument("paths", nargs="+")
     s.add_argument("--out", required=True)

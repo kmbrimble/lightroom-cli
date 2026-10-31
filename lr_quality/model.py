@@ -23,10 +23,10 @@ FEATURES = {
                     "foc_lv_p90", "foc_lv_max", "foc_edge_p99", "foc_top_e1", "foc_near_best_frac"],
     "noisy": ["noise_sigma", "exp_mean", "exp_p25", "foc_lv_med", "lo_pct_30", "foc_flat_frac"],
     "tilted_horizon": ["abs_hough", "hough_conf", "hough_lines", "abs_ori_h", "ori_h_share", "ori_h_massfrac", "ori_h_level",
-                       "abs_ori_v", "ori_v_share", "ori_v_massfrac", "hv_disagree", "foc_flat_frac", "abs_tilt_hat"],
+                       "abs_ori_v", "ori_v_share", "ori_v_massfrac", "hv_disagree", "tilt_gate", "tilt_gate_amt", "tilt_gate_strong", "abs_st_h", "st_h_share", "st_h_mass", "abs_st_v", "st_v_share", "st_v_mass", "foc_flat_frac", "abs_tilt_hat"],
 }
 FEATURES["blur"] = sorted(set(FEATURES["soft_focus"]) | set(FEATURES["motion_blur"]))
-TILT_REG = ["hough_angle", "hough_w", "ori_h_peak", "ori_h_w", "ori_v_peak", "ori_v_w"]
+TILT_REG = ["hough_w", "st_h_w", "st_h_g", "st_v_w", "ori_h_w", "ori_v_w"]
 _LOG = ("_pct", "foc_lv", "foc_edge", "foc_top_e1", "foc_global", "noise_sigma", "hi_blobs")
 
 
@@ -39,6 +39,15 @@ def derive(f: dict) -> dict:
     g["abs_hough"] = abs(f["hough_angle"]) * f["hough_valid"]
     g["abs_ori_h"] = abs(f["ori_h_peak"])
     g["abs_ori_v"] = abs(f["ori_v_peak"])
+    g["st_h_w"] = f["st_h_peak"] * f["st_h_share"]
+    g["st_v_w"] = f["st_v_peak"] * f["st_v_share"]
+    g["st_h_g"] = f["st_h_peak"] * float(f["st_h_share"] > 0.5)
+    ev = float(f["st_h_share"] > 0.4 and f["st_h_mass"] > 0.05)
+    g["tilt_gate"] = ev
+    g["tilt_gate_amt"] = ev * min(abs(f["st_h_peak"]), 6.0)
+    g["tilt_gate_strong"] = float(f["st_h_share"] > 0.5 and f["st_h_mass"] > 0.1) * min(abs(f["st_h_peak"]), 6.0)
+    g["abs_st_h"] = abs(f["st_h_peak"])
+    g["abs_st_v"] = abs(f["st_v_peak"])
     g["hv_disagree"] = abs(f["ori_h_peak"] - f["ori_v_peak"])
     return g
 
@@ -86,15 +95,25 @@ def fit_platt(s, y, w):
     return float(beta[0] / sd), float(b - beta[0] * np.average(s, weights=w) / sd)
 
 
-def folds(ids, key, k, seed):
-    """Stratified k-fold assignment (by `key`), deterministic."""
+def logit_dist(p, t):
+    """|logit(p) - logit(t)|: distance to the decision threshold in log-odds (rare positives sit far below t in probability)."""
+    lg = lambda x: np.log(np.clip(x, 1e-4, 1 - 1e-4) / (1 - np.clip(x, 1e-4, 1 - 1e-4)))  # noqa: E731
+    return np.abs(lg(p) - lg(t))
+
+
+def folds(groups, key, k, seed):
+    """Stratified, grouped k-fold: rows sharing a group (a photo and its rotated variants) always land in the same fold."""
     rng = np.random.default_rng(seed)
-    fold = np.zeros(len(ids), int)
-    for v in sorted(set(key)):
-        idx = np.flatnonzero(np.array(key) == v)
-        rng.shuffle(idx)
-        fold[idx] = np.arange(len(idx)) % k
-    return fold
+    gk = {}
+    for g, v in zip(groups, key):
+        gk[g] = max(gk.get(g, 0), v)
+    gf = {}
+    for v in sorted(set(gk.values())):
+        gs = sorted(g for g, x in gk.items() if x == v)
+        rng.shuffle(gs)
+        for i, g in enumerate(gs):
+            gf[g] = i % k
+    return np.array([gf[g] for g in groups])
 
 
 def oof_scores(X, y, w, fold, lam):
@@ -134,22 +153,25 @@ def auc(score, y):
     return float((r[y == 1].sum() - n1 * (n1 + 1) / 2) / (n1 * n0))
 
 
-def prf(pred, y):
+def prf(pred, y, w=None):
+    """Precision/recall/F1; counts (tp/fp/fn) are raw, the ratios use sampling weights `w` (population estimate) if given."""
     pred, y = np.asarray(pred, bool), np.asarray(y, bool)
-    tp, fp, fn = int((pred & y).sum()), int((pred & ~y).sum()), int((~pred & y).sum())
+    n_tp, n_fp, n_fn = int((pred & y).sum()), int((pred & ~y).sum()), int((~pred & y).sum())
+    w = np.ones(len(y)) if w is None else np.asarray(w, float)
+    tp, fp, fn = float(w[pred & y].sum()), float(w[pred & ~y].sum()), float(w[~pred & y].sum())
     p = tp / (tp + fp) if tp + fp else None
     r = tp / (tp + fn) if tp + fn else None
     f1 = 2 * p * r / (p + r) if p and r else (0.0 if tp + fp + fn else None)
-    return {"precision": p, "recall": r, "f1": f1, "tp": tp, "fp": fp, "fn": fn, "n_pos": tp + fn, "n": len(y)}
+    return {"precision": p, "recall": r, "f1": f1, "tp": n_tp, "fp": n_fp, "fn": n_fn, "n_pos": n_tp + n_fn, "n": len(y)}
 
 
-def pick_threshold(p, y, min_precision=0.75):
+def pick_threshold(p, y, min_precision=0.75, w=None):
     """Operating point: highest recall with precision >= min_precision; else best F1. -> (threshold, achieved_precision_target)"""
     best = None
     cand = np.unique(np.round(p, 3))
     rows = []
     for t in cand:
-        m = prf(p >= t, y)
+        m = prf(p >= t, y, w)
         if m["precision"] is None:
             continue
         rows.append((t, m))
@@ -177,12 +199,13 @@ def train_issue(F, recs, issue, seed=7, k=5, lams=(0.1, 1.0, 10.0, 100.0)):
     for thr in (2, 1, 3):
         y = _label_vec(recs, issue, thr)
         use = y >= 0
-        w = np.array([r["weight"] for r in recs])
+        w = np.array([r["weight"] * r.get("sw", 1.0) for r in recs])
         pos = int(y[use].sum())
         if use.sum() < 20 or pos < (12 if thr == 3 else 6) or use.sum() - pos < 6:
             continue
         Xu, yu, wu = X[use], y[use].astype(float), w[use]
-        fold = folds(np.arange(len(yu)), (yu * 1).tolist(), k, seed)
+        grp = [recs[i].get("base", recs[i]["id"]) for i in np.flatnonzero(use)]
+        fold = folds(grp, (yu * 1).astype(int).tolist(), k, seed)
         best = None
         for lam in lams:
             s = oof_scores(Xu, yu, wu, fold, lam)
@@ -203,7 +226,7 @@ def train_issue(F, recs, issue, seed=7, k=5, lams=(0.1, 1.0, 10.0, 100.0)):
     p = np.full(len(recs), np.nan)
     p[ids_oof] = oof2
     y2 = _label_vec(recs, issue, 2)
-    t, met = pick_threshold(oof2, y2[used2], 0.75)
+    t, met = pick_threshold(oof2, y2[used2], 0.75, np.array([r["weight"] * r.get("sw", 1.0) for r in recs])[used2])
     return {"features": names, "heads": heads, "threshold": t, "precision_target_met": met}, p, used2
 
 
