@@ -246,13 +246,16 @@ def apply_meta(recs, meta_path, population=None):
     if not meta_path:
         return
     meta = {str(p["id"]): p for p in json.loads(Path(meta_path).read_text("utf-8")).get("photos", [])}
-    pop = {}
+    pop, pop_ids = {}, set()
     if population:
         for line in Path(population).read_text("utf-8").splitlines():
             if line.strip():
                 d = json.loads(line)
+                pop_ids.add(str(d.get("id")))
                 k = _stratum({f["code"] for f in d.get("flags", [])})
                 pop[k] = pop.get(k, 0) + 1
+        if pop_ids and len({r["id"] for r in recs} & pop_ids) >= 0.95 * len(pop_ids):
+            pop = {}  # (nearly) every photo is reviewed: the sample IS the catalogue, no reweighting
     ns = {}
     for r in recs:
         m = meta.get(r["id"])

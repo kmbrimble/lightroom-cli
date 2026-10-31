@@ -8,6 +8,7 @@ import numpy as np
 
 from . import labels as L
 
+MIN_REAL_POS = 8
 MODEL_SCHEMA = "lr_quality_model/1"
 DEFAULT_MODEL = Path(__file__).with_name("model.json")
 
@@ -165,7 +166,7 @@ def prf(pred, y, w=None):
     return {"precision": p, "recall": r, "f1": f1, "tp": n_tp, "fp": n_fp, "fn": n_fn, "n_pos": n_tp + n_fn, "n": len(y)}
 
 
-def pick_threshold(p, y, min_precision=0.75, w=None):
+def pick_threshold(p, y, min_precision=0.75, w=None, min_recall=0.2):
     """Operating point: highest recall with precision >= min_precision; else best F1. -> (threshold, achieved_precision_target)"""
     best = None
     cand = np.unique(np.round(p, 3))
@@ -177,8 +178,9 @@ def pick_threshold(p, y, min_precision=0.75, w=None):
         rows.append((t, m))
     ok = [(t, m) for t, m in rows if m["precision"] >= min_precision and m["recall"]]
     if ok:
-        t = max(ok, key=lambda x: (x[1]["recall"], x[1]["precision"]))[0]
-        return float(t), True
+        t, m = max(ok, key=lambda x: (x[1]["recall"], x[1]["precision"]))
+        if m["recall"] >= min_recall:  # keep the precision-safe point unless it finds almost nothing; then balance with F1
+            return float(t), True
     if rows:
         t = max(rows, key=lambda x: x[1]["f1"] or 0)[0]
         return float(t), False
@@ -201,6 +203,9 @@ def train_issue(F, recs, issue, seed=7, k=5, lams=(0.1, 1.0, 10.0, 100.0)):
         use = y >= 0
         w = np.array([r["weight"] * r.get("sw", 1.0) for r in recs])
         pos = int(y[use].sum())
+        real_pos = int(sum(1 for i in np.flatnonzero(use & (y == 1)) if recs[i]["source"] not in ("weak", "synthetic")))
+        if thr == 2 and real_pos < MIN_REAL_POS and issue != "tilted_horizon":
+            continue  # too few trusted positives: leave the issue out (v1 rule flag stays available as flags_v1)
         if use.sum() < 20 or pos < (12 if thr == 3 else 6) or use.sum() - pos < 6:
             continue
         Xu, yu, wu = X[use], y[use].astype(float), w[use]
@@ -226,7 +231,8 @@ def train_issue(F, recs, issue, seed=7, k=5, lams=(0.1, 1.0, 10.0, 100.0)):
     p = np.full(len(recs), np.nan)
     p[ids_oof] = oof2
     y2 = _label_vec(recs, issue, 2)
-    t, met = pick_threshold(oof2, y2[used2], 0.75, np.array([r["weight"] * r.get("sw", 1.0) for r in recs])[used2])
+    t, met = pick_threshold(oof2, y2[used2], 0.75, np.array([r["weight"] * r.get("sw", 1.0) for r in recs])[used2],
+                             0.0 if issue == "tilted_horizon" else 0.2)
     return {"features": names, "heads": heads, "threshold": t, "precision_target_met": met}, p, used2
 
 
