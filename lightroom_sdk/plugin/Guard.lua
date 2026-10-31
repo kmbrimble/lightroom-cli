@@ -110,9 +110,8 @@ function Guard.denial(ids)
 end
 
 -- Pre-check for a command. Returns nil if allowed, else the offending ids.
--- Checks: the photos named by params.photoId / params.photoIds, and the current
--- target photo (single-photo handlers write to it; batch handlers return to it,
--- and it is the photo a lagging Develop view may still be showing).
+-- Checks: the photos named by params.photoId / params.photoIds, and, for
+-- non-batch calls, the current target photo (see below).
 local function offenders(params)
     local catalog = activeCatalog()
     local bad, seen = {}, {}
@@ -134,8 +133,15 @@ local function offenders(params)
         -- unknown id: the handler reports PHOTO_NOT_FOUND itself and writes nothing
         if photo then check(photo) end
     end
-    local target = catalog:getTargetPhoto()
-    if target then check(target) elseif #ids == 0 then table.insert(bad, "(no target photo)") end
+    -- Batch calls (non-empty photoIds) select each named photo themselves and the
+    -- controller proxy re-checks at every write, so an unrelated original that
+    -- happens to be selected is not an offender. Single-photo calls write to the
+    -- TARGET photo (applySettings ignores photoId for the write), so check it.
+    local isBatch = type(params) == "table" and type(params.photoIds) == "table" and #params.photoIds > 0
+    if not isBatch then
+        local target = catalog:getTargetPhoto()
+        if target then check(target) elseif #ids == 0 then table.insert(bad, "(no target photo)") end
+    end
     if #bad == 0 then return nil end
     return bad
 end
@@ -194,20 +200,28 @@ local function isReadName(name)
 end
 
 -- Returns a plain table (so pairs() works) copying `ctl`; write functions
--- re-check the current target photo right before the real call.
+-- re-check the current target photo right before the real call. Keys that
+-- pairs() did not enumerate (if the SDK namespace is not a plain table) are
+-- resolved lazily through __index with the same rule.
 function Guard.guardController(ctl)
-    local proxy = {}
-    for k, v in pairs(ctl) do
+    local function convert(k, v)
         if type(v) == "function" and type(k) == "string" and not isReadName(k) then
-            proxy[k] = function(...)
+            return function(...)
                 if Guard.isEnabled() then Guard.assertVirtualCopy(targetPhoto()) end
                 return v(...)
             end
-        else
-            proxy[k] = v
         end
+        return v
     end
-    return proxy
+    local proxy = {}
+    for k, v in pairs(ctl) do proxy[k] = convert(k, v) end
+    return setmetatable(proxy, { __index = function(t, k)
+        local v = ctl[k]
+        if v == nil then return nil end
+        local w = convert(k, v)
+        rawset(t, k, w)
+        return w
+    end })
 end
 
 return Guard

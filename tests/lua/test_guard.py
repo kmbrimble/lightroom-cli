@@ -203,3 +203,44 @@ def test_guard_pref_not_reachable_from_bridge_commands():
     assert prefs == {"Config.lua", "Guard.lua"}
     for p in PLUGIN_DIR.glob("*.lua"):
         assert "Config:set" not in p.read_text(errors="ignore").replace("function Config:set", ""), p.name
+
+
+def test_batch_on_vcs_runs_even_if_an_original_is_selected(env):
+    r = env.run(SETUP + """
+        T.select(T.photos[1])          -- an original happens to be selected
+        local called = 0
+        local h = Guard.wrap('develop.batchSetValue', function(p, cb) called = called + 1 end)
+        h({ photoIds = { 2, 4 } }, function() end)
+        -- ...but the same selection blocks a single-photo write (writes go to the target)
+        local resp
+        local h2 = Guard.wrap('develop.setValue', function(p, cb) called = called + 10 end)
+        h2({ photoId = 2 }, function(x) resp = x end)
+        return called, resp.error.details.photoIds[1]
+    """)
+    assert tuple(r) == (1, "1")
+
+
+def test_backstop_original_selected_batch_on_vcs_writes_only_vcs(env):
+    r = env.run(SETUP + """
+        T.select(T.photos[1])
+        local DM = require 'DevelopModule'
+        local resp
+        DM.batchSetValue({ photoIds = { 2, 4 }, param = 'Exposure', value = 1 }, function(x) resp = x end)
+        return #T.writes, T.writes[1].target, T.writes[2].target, resp.result.succeeded
+    """)
+    assert tuple(r) == (2, 2, 4, 2)
+
+
+def test_controller_proxy_works_when_namespace_not_enumerable(env):
+    r = env.run(SETUP + """
+        local real = T.ctl
+        local hidden = setmetatable({}, { __index = real })   -- pairs() sees nothing
+        T.select(T.photos[1])
+        local c = Guard.guardController(hidden)
+        local v = c.getValue('Exposure')
+        local ok = pcall(c.setValue, 'Exposure', 1)
+        T.select(T.photos[2])
+        local ok2 = pcall(c.setValue, 'Exposure', 1)
+        return v, ok, ok2, #T.writes
+    """)
+    assert tuple(r) == (0, False, True, 1)
