@@ -89,6 +89,7 @@ command. Client disconnects do not abort a call that has already started.
 
 ## Guard (deliberately light)
 
+Named exemption, class DR: `develop.clearAutoTone` (fixed tone keys -> defaults; allowed on originals; no VC resolve; always audited).
 Only routine blocking rule: **Develop-module writes (class DW, 49 commands) are allowed only on virtual copies.**
 The daemon resolves the affected photos (`photoId`/`photoIds`, else the current selection via
 `catalog.getSelectedPhotos`), requires `isVirtualCopy == true` for every one (missing or unknown counts as no, empty selection

@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
 - `tests/lua`: offline Lua 5.1 tests (optional `lua-tests` extra, needs `lupa`).
 - Persistent per-desktop daemon `lrd` (`lightroom_sdk/daemon/`) that holds the single plugin connection, multiplexes many clients over a loopback HTTP API, and enforces the virtual-copy rule; stdlib-only thin client `lightroom_sdk/lrc.py`; Windows Scheduled Task installer under `packaging/windows/`; see `docs/daemon.md`
 
+- `develop.clearAutoTone` (class DR, `AutoToneModule.lua`): removes Auto Tone (8 tone sliders -> 0, Auto* flags -> false) from any photo incl. originals, `{photoIds (max 50), dryRun}`; the single named exemption to the virtual-copy rule (`Guard.DR_COMMANDS`), daemon class `DR`. Key evidence: `/projects/.lr-scratch/autotone/keys.md`
+
 ### Fixed
 - Windows paths in plugin replies produced invalid JSON (unescaped backslashes), so the client dropped them and the call timed out after 30 s — the Lua JSON string encoder now escapes `\`, `"` and control characters
 - `LrProgressScope` leak in the "Generating Preview" path left a stuck progress bar — the scope is now always closed, and thumbnail waits are bounded (commit bd94810)
