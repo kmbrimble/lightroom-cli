@@ -75,6 +75,17 @@ def test_field_confidences_path_probability():
     assert field_confidences(c, tokenise(c[:-1])) == {}  # tokens don't reassemble
 
 
+def test_off_enum_label_zeroes_confidence(img):
+    s = Server(make_local({**FIELDS, "scene_type": "landscape", "visible_problems": ["noisy", "none"]}))
+    try:
+        r = local_classify(str(img("p1")), s.url)
+    finally:
+        s.close()
+    assert r["fields"]["scene_type"] == "other" and r["fields"]["scene_type_raw"] == "landscape"
+    assert r["fields"]["visible_problems"] == ["none"] and r["off_enum"] == ["scene_type", "visible_problems"]
+    assert r["min_conf"] == 0.0 and "low_conf:scene_type" in escalation_reasons(r, {"flags": []})
+
+
 def test_local_classify_and_quality_reasons(img):
     calls = []
     s = Server(make_local(FIELDS, calls=calls))
@@ -83,7 +94,7 @@ def test_local_classify_and_quality_reasons(img):
     finally:
         s.close()
     assert r["fields"]["scene_type"] == "lake" and r["min_conf"] > 0.9
-    assert calls[0]["response_format"]["type"] == "json_schema" and calls[0]["logprobs"] is True
+    assert calls[0]["response_format"]["type"] == "json_object" and calls[0]["logprobs"] is True
     q = {"flags": [{"code": "soft_focus", "severity": "warn"}], "needs_second_opinion": {"value": False}}
     assert escalation_reasons(r, q) == ["quality_missed:soft_focus"]
     r["fields"] = {**FIELDS, "visible_problems": ["blown_highlights"]}
@@ -151,3 +162,16 @@ def test_driver_resume_and_report(img, tmp_path, monkeypatch):
     assert a["escalate"] and a["source"] == "local"
     assert "Projected Sonnet cost" in (tmp_path / "t_report.md").read_text()
     assert load_quality(str(tmp_path / "q.ndjson")).keys() == {"a"}
+
+
+def test_escalate_redecides_when_quality_arrives_late(img, tmp_path, monkeypatch):
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    loc = {"fields": FIELDS, "conf": {"scene_type": 1, "has_people": 1, "visible_problems": 1}, "min_conf": 1}
+    rec = {**decide("p1", loc, {}), "quality_missing": True}
+    assert not rec["escalate"]
+    (tmp_path / "t.ndjson").write_text(json.dumps(rec) + "\n")
+    (tmp_path / "q.ndjson").write_text(json.dumps({"source": "p1.jpg", "flags": [{"code": "soft_focus", "severity": "bad"}]}) + "\n")
+    triage_escalate.main(["--triage", str(tmp_path / "t.ndjson"), "--quality", str(tmp_path / "q.ndjson"),
+                          "--previews", str(img.dir), "--out", str(tmp_path / "f.ndjson")])
+    out = json.loads((tmp_path / "f.ndjson").read_text())
+    assert out["escalate"] and out["reasons"] == ["quality_missed:soft_focus"] and out["escalation"] == "dry_run"

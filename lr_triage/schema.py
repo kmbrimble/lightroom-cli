@@ -35,5 +35,7 @@ PROMPT = (
     "- keywords: 5-12 short lowercase Lightroom-style keywords (e.g. \"mountain\", \"snow\", \"sunset\"). "
     "No place names unless it is a clearly famous landmark.\n"
     "- short_caption: one plain sentence, at most 140 characters.\n"
-    "Reply with the JSON object only."
+    "scene_type must be EXACTLY one of: " + ", ".join(SCENES) + ".\n"
+    "visible_problems items must be from: " + ", ".join(PROBLEMS) + ".\n"
+    "Reply with a single JSON object with exactly these keys in this order: " + ", ".join(SCHEMA["required"]) + "."
 )
