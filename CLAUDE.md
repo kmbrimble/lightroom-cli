@@ -6,6 +6,8 @@ Fork of znznzna/lightroom-cli (MIT) used to let Claude control Adobe Lightroom C
 
 A Lua plugin (`lightroom_sdk/plugin/`, loaded by Lightroom as `lightroom-cli-bridge.lrplugin`) opens two local TCP sockets on 127.0.0.1 (54322 is the plugin's send port, 54323 its receive port, per `Config.lua`; the chosen ports are written to a port file, `$LR_PORT_FILE` or `<tempdir>/lightroom_ports.txt`) and speaks newline-delimited JSON (NDJSON) over them. 130 commands are registered in `lightroom_sdk/plugin/PluginInit.lua` and implemented in the `*Module.lua` files (Catalog, Develop, ...). The Python side is the SDK client (`lightroom_sdk/`), the `lr` Click CLI (`cli/`) and a FastMCP server (`mcp_server/`). All three talk to the plugin through the SDK client.
 
+Image-quality metrics (exposure/focus/tilt/noise on a JPEG) live in the separate offline package `lr_quality/` (CLI `lr-quality`), not in the plugin; see `docs/quality.md`.
+
 ## 2. Test command
 
 ```

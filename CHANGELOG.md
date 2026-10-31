@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 - `WriteGate.lua`: catalog write handlers return `WRITE_ABORTED` instead of never replying when the write gate is not obtained.
 - `tests/lua`: offline Lua 5.1 tests (optional `lua-tests` extra, needs `lupa`).
 - Persistent per-desktop daemon `lrd` (`lightroom_sdk/daemon/`) that holds the single plugin connection, multiplexes many clients over a loopback HTTP API, and enforces the virtual-copy rule; stdlib-only thin client `lightroom_sdk/lrc.py`; Windows Scheduled Task installer under `packaging/windows/`; see `docs/daemon.md`
+- `lr_quality/` + `lr-quality` CLI: offline exposure / histogram / focus / tilt / noise metrics for a JPEG (extras `quality`, `quality-fast`), with batch-relative scoring, `needs_second_opinion` and `learn-targets`; separate package, no Lightroom dependency; see `docs/quality.md`
 
 ### Fixed
 - Windows paths in plugin replies produced invalid JSON (unescaped backslashes), so the client dropped them and the call timed out after 30 s — the Lua JSON string encoder now escapes `\`, `"` and control characters

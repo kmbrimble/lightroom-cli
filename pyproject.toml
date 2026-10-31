@@ -38,6 +38,9 @@ dev = [
 ]
 # Offline Lua 5.1 tests of the Lightroom plugin (tests/lua); skipped when lupa is absent
 lua-tests = ["lupa>=2.0"]
+# lr_quality image metrics (separate package, no Lightroom/pydantic dependency); see docs/quality.md
+quality = ["numpy>=1.23", "Pillow>=9.1"]
+quality-fast = ["numpy>=1.23", "Pillow>=9.1", "opencv-python-headless>=4.5"]
 
 [project.urls]
 Homepage = "https://github.com/znznzna/lightroom-cli"
@@ -48,12 +51,14 @@ Issues = "https://github.com/znznzna/lightroom-cli/issues"
 lr = "cli.main:cli"
 lr-mcp = "mcp_server.server:main"
 lrd = "lightroom_sdk.daemon.main:main"
+lr-quality = "lr_quality.cli:main"
 
 [tool.setuptools]
-packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server"]
+packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server", "lr_quality"]
 
 [tool.setuptools.package-data]
 lightroom_sdk = ["plugin/*.lua"]
+lr_quality = ["thresholds.json"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
