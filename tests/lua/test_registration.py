@@ -27,6 +27,9 @@ DW = {
     "catalog.rotateLeft", "catalog.rotateRight",
 }
 
+# Class DR (develop reset): the single named exemption, allowed on originals, NOT wrapped.
+DR = {"develop.clearAutoTone"}
+
 NON_DW = {
     "system.ping", "system.status", "develop.getSettings", "develop.getValue",
     "develop.getRange", "develop.getProcessVersion", "develop.getCurvePoints",
@@ -67,9 +70,10 @@ def test_classification_is_complete_and_disjoint():
     names = registered_names()
     assert len(names) == len(set(names)) and len(names) >= 130
     assert not (DW & NON_DW)
-    unclassified = set(names) - DW - NON_DW
+    assert not (DR & DW) and not (DR & NON_DW)
+    unclassified = set(names) - DW - NON_DW - DR
     assert not unclassified, f"classify new command(s) as DW or NON_DW (and add DW ones to Guard.DW_COMMANDS): {sorted(unclassified)}"
-    assert (DW | NON_DW) - set(names) == set(), "classified but no longer registered"
+    assert (DW | NON_DW | DR) - set(names) == set(), "classified but no longer registered"
 
 
 def test_guard_dw_list_matches(env):
@@ -107,6 +111,21 @@ def test_every_dw_command_is_wrapped_and_denies_original(env):
     """)
     wrapped, plain, denied, nwrites = r
     assert set(wrapped.split(",")) == DW
-    assert set(plain.split(",")) == NON_DW
+    assert set(plain.split(",")) == NON_DW | DR
     assert denied == len(DW)
     assert nwrites == 0
+
+
+def test_dr_list_is_exactly_clear_auto_tone_and_disjoint(env):
+    r = env.run("local G = require 'Guard'; return table.concat(G.DR_COMMANDS, ',')")
+    assert set(r.split(",")) == DR
+
+
+def test_dr_command_is_registered_unwrapped_and_not_denied_on_original(env):
+    r = env.run(REGISTER % PLUGIN_DIR + """
+        local h = reg['develop.clearAutoTone']
+        local resp
+        h({ photoIds = { 1 }, dryRun = true }, function(x) resp = x end)
+        return Guard.isWrapped(h) and true or false, resp.error and resp.error.code or 'none'
+    """)
+    assert tuple(r) == (False, "none")
