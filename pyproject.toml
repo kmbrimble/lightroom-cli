@@ -51,6 +51,7 @@ Issues = "https://github.com/znznzna/lightroom-cli/issues"
 lr = "cli.main:cli"
 lr-mcp = "mcp_server.server:main"
 lrd = "lightroom_sdk.daemon.main:main"
+lr-mcp-proxy = "lightroom_sdk.mcp_proxy:main"
 lr-quality = "lr_quality.cli:main"
 
 [tool.setuptools]
