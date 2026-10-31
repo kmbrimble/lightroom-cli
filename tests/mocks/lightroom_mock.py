@@ -93,8 +93,8 @@ class MockLightroomServer:
             await w.drain()
 
     async def start(self) -> None:
-        self._sender_server = await asyncio.start_server(self._track_handler(self._handle_sender), "localhost", 0)
-        self._receiver_server = await asyncio.start_server(self._track_handler(self._handle_receiver), "localhost", 0)
+        self._sender_server = await asyncio.start_server(self._track_handler(self._handle_sender), "127.0.0.1", 0)
+        self._receiver_server = await asyncio.start_server(self._track_handler(self._handle_receiver), "127.0.0.1", 0)
         self._sender_port = self._sender_server.sockets[0].getsockname()[1]
         self._receiver_port = self._receiver_server.sockets[0].getsockname()[1]
         self.port_file.write_text(f"{self._sender_port},{self._receiver_port}")
