@@ -122,6 +122,9 @@ def write_photo(d, log, entry, check=False, prior=()):
         return False, r
     if check:
         post = d.call("catalog.getPhotoMetadata", {"photoId": int(pid)})
+        if not post.get("ok"):
+            append(log, {"photo_id": pid, "status": "error", "stage": "canary-readback", "error": post.get("error")})
+            return False, post
         pm, om = post["result"], pre["result"]
         diff = {k for k in set(pm) | set(om) if k not in ("keywords", "collections") and pm.get(k) != om.get(k)}
         got = {k.lower() for k in kw_names(pm)}
@@ -135,10 +138,11 @@ def write_photo(d, log, entry, check=False, prior=()):
     return True, r
 
 
-def run(d, plan, log, ids=None, check=False, sleep=0.0):
+def run(d, plan, log, ids=None, check=False, sleep=0.0, limit=None):
     done = {e["photo_id"] for e in read_ndjson(log) if e["status"] == "ok"}
     todo = [p for p in plan if p["photo_id"] not in done and (ids is None or p["photo_id"] in ids)]
-    print(f"{len(done)} already done, {len(todo)} to do")
+    todo = todo[:limit]
+    print(f"{len(done)} already done, {len(todo)} to do this call")
     if not any(e["status"] == "baseline" for e in read_ndjson(log)):  # keyword photo counts before our first write
         r = d.call("catalog.getKeywords", timeout=120)
         if not r.get("ok"):
@@ -180,7 +184,7 @@ def make_collections(d, plan, only=None):
     c = counts(plan)
     existing = {x["name"] for x in (d.call("catalog.getCollections", {"includePhotoCounts": True}, 120).get("result") or {}).get("collections", [])}
     for name, kw in COLLECTIONS:
-        if only and name != only:
+        if only and kw != only:
             continue
         if name in existing:
             print(f"exists, skipped: {name}"); continue
@@ -194,14 +198,20 @@ def make_collections(d, plan, only=None):
     return 0
 
 
-def collection_report(d, plan):
+def collection_report(d, plan, only=None, exact=False):
     """Lightroom's 'any' operator is a contains-match, so expected = photos with any keyword containing the word."""
     got = {x["name"]: x for x in (d.call("catalog.getCollections", {"includePhotoCounts": True}, 120).get("result") or {}).get("collections", [])}
     bad = 0
     for name, kw in COLLECTIONS:
+        if only and kw != only:
+            continue
         exp = sum(1 for p in plan if any(kw.lower() in k.lower() for k in p["keywords"]))
         n = (got.get(name) or {}).get("photoCount")
-        flag = "" if n == exp else "  <-- MISMATCH"
+        tot = None
+        if name in got:  # second opinion: getCollectionPhotos total
+            tot = (d.call("catalog.getCollectionPhotos", {"collectionId": got[name]["id"], "limit": 1}, 120).get("result") or {}).get("total")
+        flag = "" if n == exp and tot in (None, exp) else "  <-- MISMATCH"
+        name = f"{name} [getCollectionPhotos total={tot}]"
         bad += flag != ""
         print(f"{name}: collection={n} expected={exp}{flag}")
     return bad
@@ -211,7 +221,11 @@ def verify(d, plan, log, sample):
     done = expected_for(plan, log)
     entries = read_ndjson(log)
     base = next((e["counts"] for e in entries if e["status"] == "baseline"), {})
-    added = collections.Counter(k.lower() for e in entries if e["status"] == "ok" for k in e["added"])
+    per_photo = collections.defaultdict(set)  # union: overlapping writers can log the same photo twice
+    for e in entries:
+        if e["status"] == "start":
+            per_photo[e["photo_id"]].update(k.lower() for k in e["to_add"])
+    added = collections.Counter(k for ks in per_photo.values() for k in ks)
     c = counts(done)
     r = d.call("catalog.getKeywords", timeout=120)
     have = {k["name"].lower(): k.get("photoCount") for k in (r.get("result") or {}).get("keywords", [])}
@@ -246,6 +260,7 @@ def main(argv=None):
     a.add_argument("--only")
     a.add_argument("--sample", type=int, default=200)
     a.add_argument("--lrc")
+    a.add_argument("--limit", type=int)
     a.add_argument("--sleep", type=float, default=0.0)
     o = a.parse_args(argv)
     plan = read_ndjson(o.plan)
@@ -259,11 +274,11 @@ def main(argv=None):
     if o.mode == "canary":
         return run(d, plan, o.log, set(o.ids.split(",")), check=True)
     if o.mode == "run":
-        return run(d, plan, o.log, sleep=o.sleep)
+        return run(d, plan, o.log, sleep=o.sleep, limit=o.limit)
     if o.mode == "collections":
         return make_collections(d, plan, o.only)
     if o.mode == "report":
-        return collection_report(d, expected_for(plan, o.log))
+        return collection_report(d, expected_for(plan, o.log), o.only)
     return verify(d, plan, o.log, o.sample)
 
 
