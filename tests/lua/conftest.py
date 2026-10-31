@@ -15,13 +15,22 @@ T = { writes = {}, log = {}, sleeps = {}, queue = {}, deferTasks = false, gate =
       photos = {}, target = nil, selection = {}, sleepHook = nil, bindFails = false, binds = 0,
       prefs = {}, messages = {} }
 
-function T.addPhoto(id, isVC)
-  local p = { localIdentifier = id, vc = isVC, ops = {} }
+function T.addPhoto(id, isVC, dev, fmt)
+  local p = { localIdentifier = id, vc = isVC, ops = {}, dev = dev or {}, fmt = fmt or 'DNG' }
   function p:getRawMetadata(k)
     if k == 'isVirtualCopy' then return self.vc end
+    if k == 'fileFormat' then return self.fmt end
     return nil
   end
-  function p:getFormattedMetadata(k) return tostring(id) end
+  function p:getFormattedMetadata(k) if k == 'fileName' then return 'photo' .. id .. '.dng' end return tostring(id) end
+  function p:getDevelopSettings() local c = {}; for k, v in pairs(self.dev) do c[k] = v end; return c end
+  -- applyDevelopSettings MERGES into the settings (omitted keys are untouched)
+  function p:applyDevelopSettings(tbl, name, flatten)
+    if T.applyFails then error("apply failed") end
+    local rec = { op = 'applyDevelopSettings', photo = id, name = name, flatten = flatten, keys = {} }
+    for k, v in pairs(tbl) do self.dev[k] = v; rec.keys[k] = v end
+    table.insert(T.writes, rec)
+  end
   for _, m in ipairs({'rotateLeft','rotateRight','pasteSettings','createDevelopSnapshot','applyDevelopPreset','setRawMetadata'}) do
     p[m] = function(self, ...) table.insert(T.writes, { op = m, photo = id }) end
   end

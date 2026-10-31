@@ -15,7 +15,7 @@ def lua_names():
 
 def test_classes_match_plugin_register_list_exactly():
     names = lua_names()
-    assert len(names) == 132 and len(set(names)) == 132
+    assert len(names) == 133 and len(set(names)) == 133
     assert set(names) == set(CLASSES), (set(names) ^ set(CLASSES))
 
 
@@ -23,7 +23,7 @@ def test_class_counts():
     from collections import Counter
 
     c = Counter(CLASSES.values())
-    assert c == {"R": 24, "RD": 15, "UI": 16, "LM": 20, "LS": 5, "VC": 1, "DW": 49, "RM": 1, "EXT": 1}
+    assert c == {"R": 24, "RD": 15, "UI": 16, "LM": 20, "LS": 5, "VC": 1, "DW": 49, "DR": 1, "RM": 1, "EXT": 1}
 
 
 def test_deny_regex_hits_no_known_command():
@@ -94,3 +94,12 @@ async def test_resolve_explicit_ids_and_selection_and_missing_flag():
     assert (await _resolve({}, nokey))[0] is False
     assert (await _resolve({}, lambda c, p: {"success": True, "result": {"photos": []}}))[0] is False
     assert (await _resolve({}, lambda c, p: {"success": False, "error": {"code": "X"}}))[0] is False
+
+
+def test_dr_clear_auto_tone_allowed_on_originals_unresolved_audited():
+    assert [n for n, k in CLASSES.items() if k == "DR"] == ["develop.clearAutoTone"]
+    v = guard.precheck("develop.clearAutoTone", {"photoIds": [1]}, {})
+    assert v.allow and v.klass == "DR" and not v.needs_resolve
+    assert not guard.is_read("develop.clearAutoTone")  # scheduler audits every non-read call
+    # every other Develop write still needs the virtual-copy check
+    assert all(guard.precheck(n, {}, {}).needs_resolve for n, k in CLASSES.items() if k == "DW")

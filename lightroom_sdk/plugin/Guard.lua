@@ -47,8 +47,19 @@ Guard.DW_COMMANDS = {
     "catalog.rotateLeft", "catalog.rotateRight",
 }
 
+-- Class DR (develop reset) commands: the ONLY Develop writes allowed on originals.
+-- Explicit allow-list, not a flag. User-authorised 2026-10-31 to remove Bracket
+-- Stacker's Auto Tone from every photo. Each entry must be a fixed-key, reset-to-
+-- default command (see AutoToneModule.lua); never add a general writer here.
+-- These are intentionally NOT in DW_COMMANDS (so they are not wrapped) and must
+-- never overlap with it (asserted below).
+Guard.DR_COMMANDS = { "develop.clearAutoTone" }
+
 local dwSet = {}
 for _, n in ipairs(Guard.DW_COMMANDS) do dwSet[n] = true end
+for _, n in ipairs(Guard.DR_COMMANDS) do
+    assert(not dwSet[n], "Guard: " .. n .. " cannot be both DW and DR")
+end
 
 function Guard.isDW(name) return dwSet[name] == true end
 

@@ -173,6 +173,14 @@ local function loadPhase4Modules()
         return false
     end
 
+    -- Load AutoToneModule (develop.clearAutoTone, the one named Guard exemption)
+    local atOk, AutoToneModule = LrTasks.pcall(require, 'AutoToneModule')
+    if atOk then
+        _G.LightroomPythonBridge.AutoToneModule = AutoToneModule
+    else
+        Logger:error("Failed to load AutoToneModule: " .. tostring(AutoToneModule))
+    end
+
     -- Load PreviewModule
     success, PreviewModule = LrTasks.pcall(require, 'PreviewModule')
     if success then
@@ -282,6 +290,11 @@ local function registerApiCommands()
     router:register("develop.getProcessVersion", DevelopModule.getProcessVersion, "sync")
     router:register("develop.setProcessVersion", DevelopModule.setProcessVersion, "sync")
     router:register("develop.resetAllDevelopAdjustments", DevelopModule.resetAllDevelopAdjustments, "sync")
+    -- Class DR (develop reset): the only Develop write allowed on originals. NOT in Guard.DW_COMMANDS.
+    local AutoToneModule = _G.LightroomPythonBridge.AutoToneModule
+    if AutoToneModule then
+        router:register("develop.clearAutoTone", AutoToneModule.clearAutoTone, "sync")
+    end
     
     -- ToneCurve manipulation commands
     router:register("develop.getCurvePoints", DevelopModule.getCurvePoints, "sync")
