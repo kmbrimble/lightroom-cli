@@ -1478,18 +1478,16 @@ function CatalogModule.createVirtualCopy(params, callback)
     end
     local copyName = params.copyName
     local copies
-    -- The SDK does not document whether a write gate is required; try bare first, then gated.
-    local ok, err = pcall(function() copies = catalog:createVirtualCopies(copyName) end)
-    if not ok or copies == nil then
-        local success, gerr = ErrorUtils.safeCall(function()
-            WriteGate.run(catalog, "Create Virtual Copy", function()
-                copies = catalog:createVirtualCopies(copyName)
-            end, { timeout = 10 })
-        end)
-        if not success then
-            callback(ErrorUtils.createError(WriteGate.codeFor(gerr, "OPERATION_FAILED"), tostring(gerr) .. " (bare attempt: " .. tostring(err) .. ")"))
-            return
-        end
+    -- Needs write access (exclusive). Do NOT pre-try it bare inside pcall: a plain pcall cannot yield, so
+    -- the call errors AFTER already creating a copy and a retry would create a duplicate.
+    local success, gerr = ErrorUtils.safeCall(function()
+        WriteGate.run(catalog, "Create Virtual Copy", function()
+            copies = catalog:createVirtualCopies(copyName)
+        end, { timeout = 10 })
+    end)
+    if not success then
+        callback(ErrorUtils.createError(WriteGate.codeFor(gerr, "OPERATION_FAILED"), tostring(gerr)))
+        return
     end
     local ids = {}
     for _, c in ipairs(copies or {}) do
