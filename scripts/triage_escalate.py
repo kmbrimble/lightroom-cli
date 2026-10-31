@@ -58,9 +58,11 @@ def main(argv=None):
         pid = rec["photo_id"]
         if pid in done:
             continue
-        if rec.get("quality_missing") and pid in quality:  # quality arrived after the local pass: re-decide
+        if pid in quality:  # always re-decide here with the current rules + quality (desktop reasons are advisory)
             rec["reasons"] = escalation_reasons(rec["local"], quality[pid])
             rec["escalate"], rec["quality_missing"] = bool(rec["reasons"]), False
+        elif not rec["escalate"] and pid in forced:
+            rec["escalate"], rec["reasons"] = True, ["forced_test"]
         img = f"{o.previews}/{pid}.jpg"
         if rec["escalate"] and not esc.dry and esc.spent < o.max_usd:
             if o.limit and sent >= o.limit:

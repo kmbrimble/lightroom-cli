@@ -83,7 +83,7 @@ def test_off_enum_label_zeroes_confidence(img):
         s.close()
     assert r["fields"]["scene_type"] == "other" and r["fields"]["scene_type_raw"] == "landscape"
     assert r["fields"]["visible_problems"] == ["none"] and r["off_enum"] == ["scene_type", "visible_problems"]
-    assert r["min_conf"] == 0.0 and "low_conf:scene_type" in escalation_reasons(r, {"flags": []})
+    assert r["min_conf"] == 0.0 and "off_enum:scene_type" in escalation_reasons(r, {"flags": []})
 
 
 def test_local_classify_and_quality_reasons(img):
@@ -95,13 +95,15 @@ def test_local_classify_and_quality_reasons(img):
         s.close()
     assert r["fields"]["scene_type"] == "lake" and r["min_conf"] > 0.9
     assert calls[0]["response_format"]["type"] == "json_object" and calls[0]["logprobs"] is True
-    q = {"flags": [{"code": "soft_focus", "severity": "warn"}], "needs_second_opinion": {"value": False}}
+    q = {"flags": [{"code": "soft_focus", "severity": "bad"}], "needs_second_opinion": {"value": False}}
     assert escalation_reasons(r, q) == ["quality_missed:soft_focus"]
+    assert escalation_reasons(r, {"flags": [{"code": "soft_focus", "severity": "warn"}]}) == []  # near-threshold only: ignored
+    assert escalation_reasons(r, {"flags": [{"code": "tilted_horizon", "severity": "warn"}], "needs_second_opinion": {"value": True}}) == []
     r["fields"] = {**FIELDS, "visible_problems": ["blown_highlights"]}
     assert set(escalation_reasons(r, {"flags": []})) == {"quality_contradicts:blown_highlights"}
     assert escalation_reasons(r, {"flags": [{"code": "overexposed", "severity": "bad"}]}) == []
     r["fields"] = {**FIELDS, "people_count": 1, "is_close_up_person": True}
-    assert "close_up_person" in escalation_reasons(r, {"flags": [], "needs_second_opinion": {"value": True}})
+    assert escalation_reasons(r, {"flags": [], "needs_second_opinion": {"value": True}}) == ["close_up_person"]
 
 
 def test_escalator_dry_budget_and_live(img):
@@ -146,7 +148,7 @@ def test_driver_resume_and_report(img, tmp_path, monkeypatch):
     monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
     for n in ("a", "b"):
         img(n)
-    (tmp_path / "q.ndjson").write_text(json.dumps({"source": "C:\\x\\a.jpg", "flags": [{"code": "soft_focus", "severity": "warn"}]}) + "\n")
+    (tmp_path / "q.ndjson").write_text(json.dumps({"source": "C:\\x\\a.jpg", "flags": [{"code": "soft_focus", "severity": "bad"}]}) + "\n")
     s = Server(make_local(FIELDS)); out = tmp_path / "t.ndjson"
     args = ["--previews", str(img.dir), "--quality", str(tmp_path / "q.ndjson"), "--out", str(out), "--url", s.url]
     try:
