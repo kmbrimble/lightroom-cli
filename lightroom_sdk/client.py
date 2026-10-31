@@ -3,6 +3,7 @@ import logging
 from typing import Any, Dict, Optional
 
 from .exceptions import ERROR_CODE_MAP, LightroomSDKError
+from .paths import get_bridge_host
 from .protocol import LightroomResponse
 from .resilient_bridge import ResilientSocketBridge
 
@@ -12,9 +13,9 @@ logger = logging.getLogger(__name__)
 class LightroomClient:
     """Main client for interacting with Lightroom (uses ResilientSocketBridge)"""
 
-    def __init__(self, host: str = "localhost", port_file: str | None = None):
-        self.host = host
-        self._bridge = ResilientSocketBridge(host=host, port_file=port_file)
+    def __init__(self, host: str | None = None, port_file: str | None = None):
+        self.host = host or get_bridge_host()
+        self._bridge = ResilientSocketBridge(host=self.host, port_file=port_file)
 
     async def connect(self) -> None:
         """Connect to Lightroom bridge (retry is handled by ResilientSocketBridge)"""

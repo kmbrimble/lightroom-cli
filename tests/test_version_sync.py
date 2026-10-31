@@ -2,11 +2,35 @@
 
 import json
 import re
+import shutil
 import subprocess
 import sys
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parent.parent
+_REAL_ROOT = ROOT
+_FILES = [
+    "pyproject.toml",
+    "scripts/sync_version.py",
+    "scripts/check_version_sync.py",
+    "lightroom_sdk/__init__.py",
+    "lightroom_sdk/plugin/Info.lua",
+    "lightroom_sdk/plugin/PluginInit.lua",
+    ".claude-plugin/marketplace.json",
+    "plugin/.claude-plugin/plugin.json",
+]
+
+
+@pytest.fixture(autouse=True)
+def _tmp_root(tmp_path, monkeypatch):
+    """Run everything against a byte-exact temp copy so pytest never rewrites tracked files."""
+    for rel in _FILES:
+        dst = tmp_path / rel
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(_REAL_ROOT / rel, dst)
+    monkeypatch.setitem(globals(), "ROOT", tmp_path)
 
 
 def _read_pyproject_version() -> str:

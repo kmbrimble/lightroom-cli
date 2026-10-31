@@ -12,11 +12,9 @@ A Lua plugin (`lightroom_sdk/plugin/`, loaded by Lightroom as `lightroom-cli-bri
 python -m pytest            # from repo root, inside a venv with `pip install -e '.[dev]'`
 ```
 
-Runs `tests/` (pyproject sets `-v --tb=short`, asyncio auto mode): unit and CLI/MCP tests with mocked bridges. Baseline on Linux (2026-10-31, Python 3.11): 817 passed, 4 failed, 170 skipped in ~15 s. The 4 failures are in `tests/test_paths.py` (Windows/macOS path tests patch `lightroom_sdk.paths.sys`, which does not exist) and fail on unmodified upstream v1.2.2.
+Runs `tests/` (pyproject sets `-v --tb=short`, asyncio auto mode): unit and CLI/MCP tests with mocked bridges. Baseline on Linux (2026-10-31, Python 3.11): 825 passed, 0 failed, 170 skipped in ~15 s.
 
 Needs live Lightroom: `tests/e2e/` (auto-skipped when the port file is missing or the ports refuse a TCP connection; `destructive` ones also need `--run-destructive`). **Never run e2e or any live test unless the orchestrator says so**; the plugin serves one client at a time.
-
-Side effect: `tests/test_version_sync.py` runs `scripts/sync_version.py`, which rewrites tracked files (`Info.lua`, `PluginInit.lua`, two plugin JSONs). Run `git status` after pytest and `git checkout --` those files unless you are bumping a version.
 
 ## 3. Deploy and verify (manual, no CI deploy)
 

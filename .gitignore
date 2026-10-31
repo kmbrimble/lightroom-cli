@@ -41,7 +41,6 @@ mcp.json.*
 
 # Session / dev-only files
 HANDOVER*.md
-CLAUDE.md
 TASK.md
 
 # Claude

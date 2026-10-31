@@ -7,10 +7,17 @@ macOS では /tmp ではなく /var/folders/... が実際のテンポラリデ�
 """
 
 import os
+import sys
 import tempfile
 from pathlib import Path
 
 PLUGIN_NAME = "lightroom-cli-bridge.lrplugin"
+
+
+def get_bridge_host() -> str:
+    """Host clients connect to. Literal 127.0.0.1, not "localhost": on Windows "localhost" tries ::1 first,
+    the plugin listens on IPv4 only, and each refused attempt costs ~2 s."""
+    return os.environ.get("LR_BRIDGE_HOST") or "127.0.0.1"
 
 
 def get_port_file() -> Path:
@@ -21,8 +28,6 @@ def get_port_file() -> Path:
 
 
 def get_lightroom_modules_dir() -> Path:
-    import sys
-
     env = os.environ.get("LR_PLUGIN_DIR")
     if env:
         return Path(env)

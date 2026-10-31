@@ -6,6 +6,8 @@ from asyncio import StreamReader, StreamWriter
 from pathlib import Path
 from typing import Any, Callable, Dict, Optional, Tuple
 
+from .paths import get_bridge_host
+
 logger = logging.getLogger(__name__)
 
 
@@ -23,8 +25,8 @@ class StreamAggregator:
 class SocketBridge:
     """Manages dual socket connections to Lightroom plugin"""
 
-    def __init__(self, host: str = "localhost", port_file: str | None = None):
-        self.host = host
+    def __init__(self, host: str | None = None, port_file: str | None = None):
+        self.host = host or get_bridge_host()
         if port_file is None:
             from .paths import get_port_file
 

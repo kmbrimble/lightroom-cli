@@ -3,6 +3,7 @@ import enum
 import logging
 from typing import Any, Callable, Dict, Optional
 
+from .paths import get_bridge_host
 from .socket_bridge import SocketBridge
 
 logger = logging.getLogger(__name__)
@@ -21,12 +22,12 @@ class ResilientSocketBridge:
 
     def __init__(
         self,
-        host: str = "localhost",
+        host: str | None = None,
         port_file: str | None = None,
         max_reconnect_attempts: int = 5,
         heartbeat_interval: float = 30.0,
     ):
-        self._host = host
+        self._host = host or get_bridge_host()
         if port_file is None:
             from .paths import get_port_file
 

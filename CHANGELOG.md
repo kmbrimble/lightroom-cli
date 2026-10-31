@@ -2,6 +2,18 @@
 
 All notable changes to this project will be documented in this file.
 
+## Unreleased (kmbrimble fork)
+
+### Fixed
+- Windows paths in plugin replies produced invalid JSON (unescaped backslashes), so the client dropped them and the call timed out after 30 s — the Lua JSON string encoder now escapes `\`, `"` and control characters
+- `LrProgressScope` leak in the "Generating Preview" path left a stuck progress bar — the scope is now always closed, and thumbnail waits are bounded (commit bd94810)
+- ~4 s of latency per call on Windows — clients connected to `localhost`, which resolves to `::1` first while the plugin listens only on IPv4 `127.0.0.1`, so each call paid ~2 s per refused `::1` attempt (two connects per call). The default host is now `127.0.0.1`; override with `LR_BRIDGE_HOST`
+- `tests/test_paths.py` failures (module-level `import sys` in `paths.py` so tests can patch it)
+
+### Changed
+- `tests/test_version_sync.py` runs against a temporary copy and no longer rewrites tracked files
+- `CLAUDE.md` is now tracked (removed from `.gitignore`)
+
 ## [1.2.2] - 2026-04-06
 
 ### Fixed
