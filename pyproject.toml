@@ -45,9 +45,10 @@ Issues = "https://github.com/znznzna/lightroom-cli/issues"
 [project.scripts]
 lr = "cli.main:cli"
 lr-mcp = "mcp_server.server:main"
+lrd = "lightroom_sdk.daemon.main:main"
 
 [tool.setuptools]
-packages = ["lightroom_sdk", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server"]
+packages = ["lightroom_sdk", "lightroom_sdk.daemon", "lightroom_sdk.types", "cli", "cli.commands", "mcp_server"]
 
 [tool.setuptools.package-data]
 lightroom_sdk = ["plugin/*.lua"]
