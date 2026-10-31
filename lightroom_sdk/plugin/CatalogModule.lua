@@ -1724,7 +1724,7 @@ function CatalogModule.removeFromCatalog(params, callback)
         return
     end
     local inCollection = #collection:getPhotos()
-    local sok, serr = pcall(function()
+    local sok, serr = ErrorUtils.safeCall(function()
         catalog:setActiveSources({ collection })
         catalog:setSelectedPhotos(photos[1], photos)
     end)
