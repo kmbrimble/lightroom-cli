@@ -5,7 +5,8 @@ import pytest
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "..", "scripts"))
 import triage_classify  # noqa: E402
-from lr_triage.cascade import Cascade, escalation_reasons, load_quality  # noqa: E402
+import triage_escalate  # noqa: E402
+from lr_triage.cascade import Escalator, decide, escalation_reasons, load_quality  # noqa: E402
 from lr_triage.classify import field_confidences, local_classify  # noqa: E402
 
 FIELDS = {"scene_type": "lake", "has_people": False, "people_count": 0, "is_close_up_person": False,
@@ -92,14 +93,15 @@ def test_local_classify_and_quality_reasons(img):
     assert "close_up_person" in escalation_reasons(r, {"flags": [], "needs_second_opinion": {"value": True}})
 
 
-def test_cascade_dry_budget_and_live(img):
+def test_escalator_dry_budget_and_live(img):
     loc = {"fields": FIELDS, "conf": {"scene_type": 0.3, "has_people": 1, "visible_problems": 1}, "min_conf": 0.3}
     f = img("p1")
-    assert Cascade({}, None).run("p1", str(f), loc)["escalation"] == "dry_run"
+    rec = decide("p1", loc, {})
+    assert rec["escalate"] and Escalator(None).run(rec, str(f))["escalation"] == "dry_run"
     calls = []; s = Server(make_claude(calls))
     try:
-        c = Cascade({}, "sk-test", max_usd=0.0025, url=s.url + "/v1/messages")
-        r1 = c.run("p1", str(f), loc); r2 = c.run("p1", str(f), loc)
+        e = Escalator("sk-test", max_usd=0.0025, url=s.url + "/v1/messages")
+        r1 = e.run(rec, str(f)); r2 = e.run(rec, str(f))
     finally:
         s.close()
     assert r1["source"] == "claude" and r1["fields"]["scene_type"] == "waterfall" and r1["local"]["fields"]["scene_type"] == "lake"
@@ -108,6 +110,25 @@ def test_cascade_dry_budget_and_live(img):
     hdrs, body = calls[0]
     assert hdrs["x-api-key"] == "sk-test" and body["model"] == "claude-sonnet-5-5" and body["max_tokens"] == 500
     assert body["tool_choice"] == {"type": "auto"}  # forced tool_choice 400s on Sonnet 5.5
+
+
+def test_escalate_script_scrubs_key_and_resumes(img, tmp_path, monkeypatch):
+    f = img("p1")
+    loc = {"fields": FIELDS, "conf": {"scene_type": 0.3, "has_people": 1, "visible_problems": 1}, "min_conf": 0.3}
+    tri = tmp_path / "t.ndjson"
+    tri.write_text(json.dumps(decide("p1", loc, {})) + "\n" + json.dumps(decide("p2", {**loc, "conf": {"scene_type": 1, "has_people": 1, "visible_problems": 1}, "min_conf": 1}, {})) + "\n")
+    calls = []; s = Server(make_claude(calls)); out = tmp_path / "final.ndjson"
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-secret-123")
+    args = ["--triage", str(tri), "--previews", str(img.dir), "--out", str(out), "--api-url", s.url + "/v1/messages"]
+    try:
+        triage_escalate.main(args); triage_escalate.main(args)  # second run: nothing new
+    finally:
+        s.close()
+    recs = [json.loads(l) for l in out.read_text().splitlines()]
+    assert len(calls) == 1 and [r["source"] for r in recs] == ["claude", "local"]
+    from lr_triage.cascade import scrub
+    assert "sk-secret-123" not in scrub("bad key sk-secret-123", "sk-secret-123")
+    assert "sk-secret-123" not in out.read_text()
 
 
 def test_driver_resume_and_report(img, tmp_path, monkeypatch):
@@ -127,6 +148,6 @@ def test_driver_resume_and_report(img, tmp_path, monkeypatch):
     recs = [json.loads(l) for l in out.read_text().splitlines()]
     assert n1 == 2 and sorted(r["photo_id"] for r in recs) == ["a", "b", "c"]
     a = next(r for r in recs if r["photo_id"] == "a")
-    assert a["escalate"] and a["escalation"] == "dry_run"
+    assert a["escalate"] and a["source"] == "local"
     assert "Projected Sonnet cost" in (tmp_path / "t_report.md").read_text()
     assert load_quality(str(tmp_path / "q.ndjson")).keys() == {"a"}

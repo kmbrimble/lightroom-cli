@@ -83,7 +83,7 @@ def claude_classify(image_path, api_key, url=API_URL, model=MODEL):
     try:
         r = _post(url, body, {"x-api-key": api_key, "anthropic-version": "2023-06-01"}, timeout=120)
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"anthropic http {e.code}: {e.read()[:300].decode('utf-8', 'replace')}") from None
+        raise RuntimeError(f"anthropic http {e.code}: {scrub(e.read()[:300].decode('utf-8', 'replace'), api_key)}") from None
     fields = None
     for b in r.get("content", []):
         if b.get("type") == "tool_use":
@@ -98,16 +98,27 @@ def claude_classify(image_path, api_key, url=API_URL, model=MODEL):
     return {"fields": fields, "usage": r.get("usage"), "cost_usd": round(cost_usd(r.get("usage")), 5)}
 
 
-class Cascade:
-    def __init__(self, quality, api_key=None, max_usd=8.0, dry_run=False, spent=0.0, **kw):
-        self.quality, self.key, self.max_usd, self.spent, self.kw = quality, api_key, max_usd, spent, kw
+def scrub(text, key):
+    return str(text).replace(key, "***") if key else str(text)
+
+
+def decide(photo_id, local, quality, min_conf=0.60):
+    """Desktop side, no key: local record + escalation decision (reasons)."""
+    reasons = escalation_reasons(local, quality.get(photo_id), min_conf)
+    return {"photo_id": photo_id, "source": "local", "fields": local["fields"], "conf": local["conf"],
+            "min_conf": local["min_conf"], "reasons": reasons, "escalate": bool(reasons), "local": local, "claude": None}
+
+
+class Escalator:
+    """Container side: send escalated records to Claude, honour the budget, keep local on any failure."""
+
+    def __init__(self, api_key=None, max_usd=8.0, dry_run=False, spent=0.0, **kw):
+        self.key, self.max_usd, self.spent, self.kw = api_key, max_usd, spent, kw
         self.dry = dry_run or not api_key
 
-    def run(self, photo_id, image_path, local):
-        reasons = escalation_reasons(local, self.quality.get(photo_id))
-        rec = {"photo_id": photo_id, "source": "local", "fields": local["fields"], "conf": local["conf"],
-               "min_conf": local["min_conf"], "reasons": reasons, "escalate": bool(reasons), "local": local, "claude": None}
-        if not reasons:
+    def run(self, rec, image_path):
+        rec = dict(rec)
+        if not rec["escalate"]:
             return rec
         if self.dry:
             rec["escalation"] = "dry_run"
@@ -116,8 +127,8 @@ class Cascade:
         else:
             try:
                 c = claude_classify(image_path, self.key, **self.kw)
-            except Exception as e:  # keep the local answer; record why
-                rec["escalation"] = "error: " + str(e)[:200]
+            except Exception as e:  # keep the local answer; record why (scrubbed)
+                rec["escalation"] = "error: " + scrub(e, self.key)[:200]
             else:
                 self.spent += c["cost_usd"]
                 rec.update(source="claude", fields=c["fields"], claude=c, escalation="done")

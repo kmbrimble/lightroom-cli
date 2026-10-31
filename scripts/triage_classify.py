@@ -2,17 +2,17 @@
 """Resumable triage driver: local VLM pass + escalation cascade over a previews folder.
 
   python triage_classify.py --previews C:\\NA2026\\cl_scratch\\previews --watch
-Stdlib only. ANTHROPIC_API_KEY (env) enables escalation; without it, or with --dry-run-escalation, escalation is only recorded.
+Local pass only: records `escalate` + `reasons`; it never reads an API key. Escalation to Claude is scripts/triage_escalate.py (container).
 """
 import argparse, collections, json, os, sys, time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."))
-from lr_triage.cascade import EST_IN, EST_OUT, PRICE_IN, PRICE_OUT, Cascade, load_quality  # noqa: E402
+from lr_triage.cascade import EST_IN, EST_OUT, PRICE_IN, PRICE_OUT, decide, load_quality  # noqa: E402
 from lr_triage.classify import local_classify  # noqa: E402
 
 
 def read_done(path):
-    done, spent = set(), 0.0
+    done = set()
     if os.path.exists(path):
         for line in open(path, encoding="utf-8"):
             try:
@@ -20,8 +20,7 @@ def read_done(path):
             except ValueError:
                 continue
             done.add(r["photo_id"])
-            spent += (r.get("claude") or {}).get("cost_usd", 0.0)
-    return done, spent
+    return done
 
 
 def report(path, total=1523):
@@ -36,7 +35,7 @@ def report(path, total=1523):
     L = [f"# Triage report ({len(rs)} photos)", "", "## Scene types"]
     L += [f"- {k}: {v}" for k, v in collections.Counter(r["fields"].get("scene_type") for r in rs).most_common()]
     L += ["", f"## Escalation: {len(esc)}/{len(rs)} = {100 * len(esc) / n:.1f}%",
-          f"(actually sent to Claude: {len(done)}; budget_exhausted: {sum(r.get('escalation') == 'budget_exhausted' for r in rs)};"
+          f"(sent to Claude, from final.ndjson if used: {len(done)}; budget_exhausted: {sum(r.get('escalation') == 'budget_exhausted' for r in rs)};"
           f" errors: {sum(str(r.get('escalation', '')).startswith('error') for r in rs)})"]
     L += [f"- {k}: {v}" for k, v in reasons.most_common()]
     L += ["", f"min_conf median {mc[len(mc) // 2]:.3f}, p10 {mc[len(mc) // 10]:.3f}" if mc else "no confidences",
@@ -55,19 +54,12 @@ def main(argv=None):
     a.add_argument("--watch", action="store_true", help="keep waiting for new previews until render.done or --until-count")
     a.add_argument("--until-count", type=int, default=0)
     a.add_argument("--limit", type=int, default=0, help="stop after N new photos (testing)")
-    a.add_argument("--max-usd", type=float, default=8.0)
-    a.add_argument("--dry-run-escalation", action="store_true")
     a.add_argument("--quality-grace", type=float, default=300, help="seconds to wait for a photo's lr_quality record")
     a.add_argument("--poll", type=float, default=5)
     a.add_argument("--max-minutes", type=float, default=0)
-    a.add_argument("--api-url", default=None)
     a.add_argument("--report", default=None)
     o = a.parse_args(argv)
-    key = os.environ.get("ANTHROPIC_API_KEY") or None
-    dry = o.dry_run_escalation or not key
-    print("escalation:", "DRY RUN (no key or flag)" if dry else f"live, max ${o.max_usd}", flush=True)
-    done, spent = read_done(o.out)
-    kw = {"url": o.api_url} if o.api_url else {}
+    done = read_done(o.out)
     t0, new, quality, qload = time.time(), 0, {}, 0
     first_seen = {}
     while True:
@@ -92,15 +84,13 @@ def main(argv=None):
                 print(f"{pid}: {e}", file=sys.stderr, flush=True)
                 done.add(pid)  # don't loop forever on a bad file; rerun with a new --out to retry
                 continue
-            c = Cascade(quality, key, o.max_usd, dry, spent, **kw)
-            rec = c.run(pid, p, loc)
-            spent = c.spent
+            rec = decide(pid, loc, quality)
             rec["quality_missing"] = pid not in quality
             with open(o.out, "a", encoding="utf-8") as fh:
                 fh.write(json.dumps(rec, ensure_ascii=False) + "\n")
             done.add(pid)
             new += 1
-            print(f"{pid} {rec['fields']['scene_type']} min_conf={rec['min_conf']} esc={rec['reasons']} ${spent:.3f}", flush=True)
+            print(f"{pid} {rec['fields']['scene_type']} min_conf={rec['min_conf']} esc={rec['reasons']}", flush=True)
         if todo:
             if o.limit and new >= o.limit:
                 break
