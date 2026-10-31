@@ -75,7 +75,14 @@ function MessageProtocol:_encodeJSON(obj)
     
     if t == "string" then
         -- Escape special characters
-        local escaped = obj:gsub('"', '\\"'):gsub('\n', '\\n'):gsub('\r', '\\r')
+        -- JSON string escaping. Backslash MUST be escaped first (Windows paths such as C:\Users\...
+        -- otherwise produce invalid JSON), then quote and control characters.
+        local escaped = obj:gsub('\\', '\\\\')
+            :gsub('"', '\\"')
+            :gsub('\n', '\\n')
+            :gsub('\r', '\\r')
+            :gsub('\t', '\\t')
+            :gsub('[%z\1-\8\11\12\14-\31]', function(c) return string.format('\\u%04x', string.byte(c)) end)
         return '"' .. escaped .. '"'
     elseif t == "number" then
         return tostring(obj)
