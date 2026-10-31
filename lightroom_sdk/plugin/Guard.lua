@@ -18,6 +18,9 @@
 -- LrPrefs; no bridge command writes it.
 
 local LrTasks = import 'LrTasks'
+-- Photo metadata calls (getRawMetadata) can yield; a plain pcall cannot yield across them and then
+-- reports failure, which would make every virtual copy look like an original (verified live).
+local pcall = LrTasks.pcall
 
 local Guard = {}
 
