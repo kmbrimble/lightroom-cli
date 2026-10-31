@@ -55,6 +55,12 @@ def validate(fields, conf):
     miss = [k for k in SCHEMA["required"] if k not in fields]
     if miss:
         raise ValueError(f"missing keys {miss}")
+    for k in ("subjects", "keywords"):  # free generation can emit broken arrays (seen: unbalanced quotes)
+        if not (isinstance(fields[k], list) and fields[k] and all(isinstance(x, str) and x for x in fields[k])):
+            raise ValueError(f"{k} not a list of strings")
+    if not isinstance(fields["has_people"], bool) or not isinstance(fields["is_close_up_person"], bool) \
+            or not isinstance(fields["people_count"], int) or not isinstance(fields["short_caption"], str):
+        raise ValueError("bad types")
     bad = []
     if fields["scene_type"] not in SCHEMA["properties"]["scene_type"]["enum"]:
         bad.append("scene_type")
@@ -78,7 +84,8 @@ def local_classify(image_path, url="http://127.0.0.1:8081", timeout=300, retries
                 {"type": "text", "text": PROMPT},
                 {"type": "image_url", "image_url": {"url": "data:image/jpeg;base64," + b64}}]}]}
     err = None
-    for _ in range(retries + 1):
+    for attempt in range(retries + 1):
+        body["temperature"] = 0 if attempt == 0 else 0.3  # temp 0 would just repeat a malformed answer
         try:
             r = _post(url + "/v1/chat/completions", body, timeout=timeout)
         except urllib.error.HTTPError as e:

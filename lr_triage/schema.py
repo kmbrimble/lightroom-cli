@@ -37,5 +37,8 @@ PROMPT = (
     "- short_caption: one plain sentence, at most 140 characters.\n"
     "scene_type must be EXACTLY one of: " + ", ".join(SCENES) + ".\n"
     "visible_problems items must be from: " + ", ".join(PROBLEMS) + ".\n"
+    "Example of the exact format: {\"scene_type\": \"lake\", \"has_people\": false, \"people_count\": 0, "
+    "\"is_close_up_person\": false, \"visible_problems\": [\"none\"], \"subjects\": [\"calm lake\", \"pine trees\"], "
+    "\"keywords\": [\"lake\", \"reflection\", \"pine\", \"calm\", \"mountain\"], \"short_caption\": \"A calm lake at dawn.\"}\n"
     "Reply with a single JSON object with exactly these keys in this order: " + ", ".join(SCHEMA["required"]) + "."
 )

@@ -175,3 +175,12 @@ def test_escalate_redecides_when_quality_arrives_late(img, tmp_path, monkeypatch
                           "--previews", str(img.dir), "--out", str(tmp_path / "f.ndjson")])
     out = json.loads((tmp_path / "f.ndjson").read_text())
     assert out["escalate"] and out["reasons"] == ["quality_missed:soft_focus"] and out["escalation"] == "dry_run"
+
+
+def test_malformed_keywords_rejected(img):
+    s = Server(make_local({**FIELDS, "keywords": "mountain"}))
+    try:
+        with pytest.raises(RuntimeError, match="keywords"):
+            local_classify(str(img("p1")), s.url, retries=1)
+    finally:
+        s.close()
